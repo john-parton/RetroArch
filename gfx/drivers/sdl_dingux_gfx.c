@@ -49,8 +49,12 @@
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
+#ifndef SDL_DINGUX_MENU_WIDTH
 #define SDL_DINGUX_MENU_WIDTH  320
-#define SDL_DINGUX_MENU_HEIGHT 240
+#endif
+#ifndef SDL_DINGUX_MENU_HEIGHT
+#define SDL_DINGUX_MENU_HEIGHT  240
+#endif
 
 #define SDL_DINGUX_NUM_FONT_GLYPHS 256
 
