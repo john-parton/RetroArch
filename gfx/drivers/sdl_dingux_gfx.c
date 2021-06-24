@@ -544,6 +544,19 @@ error:
    return NULL;
 }
 
+/* The RS90 is *very* picky about valid display resolutions */
+#if defined(RS90)
+static void sdl_dingux_sanitize_frame_dimensions(
+      sdl_dingux_video_t* vid,
+      unsigned width, unsigned height,
+      unsigned *sanitized_width, unsigned *sanitized_height)
+{
+  // tmp code
+  *sanitized_width = 240;
+  *sanitized_height = 160;
+}
+#else
+
 /* Certain display resolutions are forbidden on
  * OpenDingux, due to incompatibilities with the
  * hardware IPU scaler. Invalid widths will
@@ -615,6 +628,7 @@ static void sdl_dingux_sanitize_frame_dimensions(
       *sanitized_height = 160;
 #endif
 }
+#endif
 
 static void sdl_dingux_set_output(
       sdl_dingux_video_t* vid,
