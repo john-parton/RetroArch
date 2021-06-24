@@ -730,8 +730,8 @@ static const bool default_systemfiles_in_content_dir = false;
 static const bool default_screenshots_in_content_dir = false;
 
 #if defined(RS90)
-#define DEFAULT_MENU_TOGGLE_GAMEPAD_COMBO INPUT_TOGGLE_L1_R1_START_SELECT
-#if defined(_XBOX1) || defined(__PS3__) || defined(_XBOX360) || defined(DINGUX)
+#define DEFAULT_MENU_TOGGLE_GAMEPAD_COMBO INPUT_TOGGLE_START_SELECT
+#elif defined(_XBOX1) || defined(__PS3__) || defined(_XBOX360) || defined(DINGUX)
 #define DEFAULT_MENU_TOGGLE_GAMEPAD_COMBO INPUT_TOGGLE_L3_R3
 #elif defined(PS2) || defined(PSP)
 #define DEFAULT_MENU_TOGGLE_GAMEPAD_COMBO INPUT_TOGGLE_HOLD_START
