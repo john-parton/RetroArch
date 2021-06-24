@@ -502,7 +502,7 @@ static void *sdl_dingux_gfx_init(const video_info_t *video,
 
    if (!vid->screen)
    {
-      RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
+      RARCH_ERR("XXXX [SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
       goto error;
    }
 
@@ -602,7 +602,9 @@ static void sdl_dingux_sanitize_frame_dimensions(
    {
       /* GBA @ 240x160 */
       if ((width == 240) && (height == 160))
-         *sanitized_height = 162;
+        // busted on RS-90
+         // *sanitized_height = 162
+         ;
       /* GBA (x2) @ 480x320 */
       else if ((width == 480) && (height == 320))
          *sanitized_height = 324;
@@ -636,6 +638,9 @@ static void sdl_dingux_set_output(
    sdl_dingux_sanitize_frame_dimensions(vid,
          width, height, &sanitized_width, &sanitized_height);
 
+   RARCH_LOG("sanitized_width: %d\n", sanitized_width);
+   RARCH_LOG("sanitized_height: %d\n", sanitized_height);
+
    /* Attempt to change video mode */
    vid->screen = SDL_SetVideoMode(
          sanitized_width, sanitized_height,
@@ -645,7 +650,7 @@ static void sdl_dingux_set_output(
    /* Check whether selected display mode is valid */
    if (unlikely(!vid->screen))
    {
-      RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
+      RARCH_ERR("YYYY [SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
 
       /* We must have a valid SDL surface
        * > Use known good fallback display mode
