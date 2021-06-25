@@ -871,11 +871,8 @@ bool scond_wait_timeout(scond_t *cond, slock_t *lock, int64_t timeout_us)
 #elif defined(PS2)
    int tickms = ps2_clock();
    now.tv_sec = tickms/1000;
-   now.tv_nsec = tickms * 1000;
-#elif defined(DINGUX_BETA)
-   /* timeout on libogc is duration, not end time. */
-   clock_gettime(CLOCK_REALTIME, &now);  
-#elif defined(__mips__) || defined(VITA) || defined(_3DS)
+   now.tv_nsec = tickms * 1000; 
+#elif !defined(DINGUX_BETA) && (defined(__mips__) || defined(VITA) || defined(_3DS))
    struct timeval tm;
 
    gettimeofday(&tm, NULL);
