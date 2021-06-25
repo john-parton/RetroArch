@@ -503,7 +503,7 @@ static void *sdl_dingux_gfx_init(const video_info_t *video,
 
    if (!vid->screen)
    {
-      RARCH_ERR("XXXX [SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
+      RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
       goto error;
    }
 
@@ -665,7 +665,7 @@ static void sdl_dingux_set_output(
    /* Check whether selected display mode is valid */
    if (unlikely(!vid->screen))
    {
-      RARCH_ERR("YYYY [SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
+      RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
 
       /* We must have a valid SDL surface
        * > Use known good fallback display mode
