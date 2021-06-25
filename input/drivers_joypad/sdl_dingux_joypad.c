@@ -468,6 +468,9 @@ static int16_t sdl_dingux_joypad_axis(unsigned port, uint32_t joyaxis)
    return sdl_dingux_joypad_axis_state(port, joyaxis);
 }
 
+
+// This is subtly broken on the RS-90
+// The workaround is to manually bind all of the inputs
 static int16_t sdl_dingux_joypad_state(
       rarch_joypad_info_t *joypad_info,
       const struct retro_keybind *binds,
@@ -548,7 +551,6 @@ static void sdl_dingux_joypad_poll(void)
 		switch (event.type)
 		{
 			case SDL_KEYDOWN:
-        RARCH_LOG("SDL_KEYDOWN: %s\n", SDL_GetKeyName(event.key.keysym.sym));
             switch (event.key.keysym.sym)
             {
                case SDLK_SPACE:
@@ -610,7 +612,6 @@ static void sdl_dingux_joypad_poll(void)
             }
             break;
 			case SDL_KEYUP:
-        RARCH_LOG("SDL_KEYUP: %s\n", SDL_GetKeyName(event.key.keysym.sym));
             switch (event.key.keysym.sym)
             {
                case SDLK_SPACE:

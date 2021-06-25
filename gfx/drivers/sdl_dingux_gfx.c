@@ -616,9 +616,7 @@ static void sdl_dingux_sanitize_frame_dimensions(
    {
       /* GBA @ 240x160 */
       if ((width == 240) && (height == 160))
-        // busted on RS-90
-         // *sanitized_height = 162
-         ;
+         *sanitized_height = 162;
       /* GBA (x2) @ 480x320 */
       else if ((width == 480) && (height == 320))
          *sanitized_height = 324;
@@ -653,6 +651,7 @@ static void sdl_dingux_set_output(
    sdl_dingux_sanitize_frame_dimensions(vid,
          width, height, &sanitized_width, &sanitized_height);
 
+   // Temp debugging for RS-90, remove me
    RARCH_LOG("sanitized_width: %d\n", sanitized_width);
    RARCH_LOG("sanitized_height: %d\n", sanitized_height);
 
