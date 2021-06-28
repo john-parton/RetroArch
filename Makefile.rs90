@@ -2,8 +2,8 @@
 ## Toolchain variables ##
 #########################
 
-# Default toolchain directory
-TOOLCHAIN_DIR=/opt/rs90-toolchain
+# Alpha toolchain
+TOOLCHAIN_DIR=/opt/rs90-toolchain.2021-06-28
 
 # All toolchain-related variables may be
 # overridden via the command line
