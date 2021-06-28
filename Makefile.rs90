@@ -151,7 +151,7 @@ ifeq ($(DEBUG), 1)
    DEF_FLAGS += -O0 -g -DDEBUG -D_DEBUG
 else
    OBJDIR := $(OBJDIR_BASE)/release
-   DEF_FLAGS += -O2 -DNDEBUG
+   DEF_FLAGS += -O3 -DNDEBUG
 endif
 
 include Makefile.common
