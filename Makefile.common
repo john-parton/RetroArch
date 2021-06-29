@@ -1573,6 +1573,14 @@ else ifeq ($(HAVE_SDL), 1)
    OBJ += gfx/drivers/sdl_gfx.o
    DEF_FLAGS += $(SDL_CFLAGS)
    LIBS += $(SDL_LIBS)
+else ifeq ($(RS_90), 1)
+   HAVE_SDL_COMMON = 1
+   DEF_FLAGS += -DHAVE_SDL -DHAVE_SDL_DINGUX
+   OBJ += gfx/drivers/sdl_rs90_gfx.o \
+          input/drivers/sdl_dingux_input.o \
+          input/drivers_joypad/sdl_dingux_joypad.o
+   DEF_FLAGS += $(SDL_DINGUX_CFLAGS)
+   LIBS += $(SDL_DINGUX_LIBS)
 else ifeq ($(HAVE_SDL_DINGUX), 1)
    HAVE_SDL_COMMON = 1
    DEF_FLAGS += -DHAVE_SDL -DHAVE_SDL_DINGUX
