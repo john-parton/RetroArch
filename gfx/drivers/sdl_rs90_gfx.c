@@ -49,13 +49,8 @@
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#ifdef RS90
-#define SDL_DINGUX_MENU_WIDTH 240
-#define SDL_DINGUX_MENU_HEIGHT 160
-#else
-#define SDL_DINGUX_MENU_WIDTH  320
-#define SDL_DINGUX_MENU_HEIGHT  240
-#endif
+#define SDL_RS90_WIDTH 240
+#define SDL_RS90_HEIGHT 160
 
 #define SDL_DINGUX_NUM_FONT_GLYPHS 256
 
@@ -75,7 +70,7 @@ typedef struct sdl_dingux_video
 #endif
    uint32_t font_colour32;
    uint16_t font_colour16;
-   uint16_t menu_texture[SDL_DINGUX_MENU_WIDTH * SDL_DINGUX_MENU_HEIGHT];
+   uint16_t menu_texture[SDL_RS90_WIDTH * SDL_RS90_HEIGHT];
    bool rgb32;
    bool vsync;
    bool keep_aspect;
@@ -290,7 +285,7 @@ static void sdl_dingux_blit_video_mode_error_msg(sdl_dingux_video_t *vid)
 
    /* Generate display mode string */
    snprintf(display_mode, sizeof(display_mode), "> %ux%u, %s",
-         vid->frame_width, vid->frame_height,
+         SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
          vid->rgb32 ? "XRGB8888" : "RGB565");
 
    /* Print error message */
@@ -497,7 +492,7 @@ static void *sdl_dingux_gfx_init(const video_info_t *video,
 #endif
 
    vid->screen = SDL_SetVideoMode(
-         SDL_DINGUX_MENU_WIDTH, SDL_DINGUX_MENU_HEIGHT,
+         SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
          video->rgb32 ? 32 : 16,
          surface_flags);
 
@@ -507,8 +502,6 @@ static void *sdl_dingux_gfx_init(const video_info_t *video,
       goto error;
    }
 
-   vid->frame_width     = SDL_DINGUX_MENU_WIDTH;
-   vid->frame_height    = SDL_DINGUX_MENU_HEIGHT;
    vid->rgb32           = video->rgb32;
    vid->vsync           = video->vsync;
    vid->keep_aspect     = ipu_keep_aspect;
@@ -545,96 +538,10 @@ error:
    return NULL;
 }
 
-/* The RS90 is *very* picky about valid display resolutions */
-#if defined(RS90)
-static void sdl_dingux_sanitize_frame_dimensions(
-      sdl_dingux_video_t* vid,
-      unsigned width, unsigned height,
-      unsigned *sanitized_width, unsigned *sanitized_height)
-{
-  // tmp code
-  *sanitized_width = 240;
-  *sanitized_height = 160;
-}
-#else
-
-/* Certain display resolutions are forbidden on
- * OpenDingux, due to incompatibilities with the
- * hardware IPU scaler. Invalid widths will
- * generate a kernel segfault. Invalid heights
- * will cause image distortion, or are entirely
- * unsupported on OpenDingux Beta releases. This
- * function 'sanitises' the requested resolution.
- * Note that this requires some unavoidable
- * hard-coded blacklisting... */
-static void sdl_dingux_sanitize_frame_dimensions(
-      sdl_dingux_video_t* vid,
-      unsigned width, unsigned height,
-      unsigned *sanitized_width, unsigned *sanitized_height)
-{
-   /*** WIDTH ***/
-
-   /* SDL surface width must be rounded up to
-    * the nearest multiple of 16 */
-   *sanitized_width = (width + 0xF) & ~0xF;
-
-   /* Blacklist */
-
-   /* Neo Geo @ 304x224 */
-   if (!vid->integer_scaling && (width == 304) && (height == 224))
-      *sanitized_width = 320;
-#if defined(DINGUX_BETA)
-   else if (vid->keep_aspect && !vid->integer_scaling)
-   {
-      /* Neo Geo Pocket (x2) @ 320x304 */
-      if ((width == 320) && (height == 304))
-         *sanitized_width = 336;
-      /* GB/GBC/GG @ 160x144 */
-      else if ((width == 160) && (height == 144))
-         *sanitized_width = 176;
-      /* GB/GBC/GG (x2) @ 320x288 */
-      else if ((width == 320) && (height == 288))
-         *sanitized_width = 336;
-      /* GB/GBC/GG (x3) @ 480x432 */
-      else if ((width == 480) && (height == 432))
-         *sanitized_width = 496;
-   }
-#endif
-
-   /*** HEIGHT ***/
-   *sanitized_height = height;
-
-   /* Blacklist */
-#if defined(DINGUX_BETA)
-   /* Neo Geo Pocket @ 160x152 */
-   if ((width == 160) && (height == 152))
-      *sanitized_height = 154;
-   /* TIC-80 @ 240x136 */
-   else if ((width == 240) && (height == 136))
-      *sanitized_height = 144;
-   else if (vid->keep_aspect && !vid->integer_scaling)
-   {
-      /* GBA @ 240x160 */
-      if ((width == 240) && (height == 160))
-         *sanitized_height = 162;
-      /* GBA (x2) @ 480x320 */
-      else if ((width == 480) && (height == 320))
-         *sanitized_height = 324;
-   }
-#else
-   /* Neo Geo Pocket @ 160x152 */
-   if (!vid->integer_scaling && (width == 160) && (height == 152))
-      *sanitized_height = 160;
-#endif
-}
-#endif
-
 static void sdl_dingux_set_output(
       sdl_dingux_video_t* vid,
       unsigned width, unsigned height, bool rgb32)
 {
-   unsigned sanitized_width;
-   unsigned sanitized_height;
    uint32_t surface_flags = (vid->vsync) ?
          (SDL_HWSURFACE | SDL_TRIPLEBUF | SDL_FULLSCREEN) :
          (SDL_HWSURFACE | SDL_FULLSCREEN);
@@ -647,50 +554,27 @@ static void sdl_dingux_set_output(
    vid->frame_padding_x = 0;
    vid->frame_padding_y = 0;
 
-   /* Ensure we request valid surface dimensions */
-   sdl_dingux_sanitize_frame_dimensions(vid,
-         width, height, &sanitized_width, &sanitized_height);
-
-   // Temp debugging for RS-90, remove me
-   RARCH_LOG("sanitized_width: %d\n", sanitized_width);
-   RARCH_LOG("sanitized_height: %d\n", sanitized_height);
-
    /* Attempt to change video mode */
    vid->screen = SDL_SetVideoMode(
-         sanitized_width, sanitized_height,
+         SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
          rgb32 ? 32 : 16,
          surface_flags);
 
    /* Check whether selected display mode is valid */
    if (unlikely(!vid->screen))
    {
-      RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
-
-      /* We must have a valid SDL surface
-       * > Use known good fallback display mode
-       *   (i.e. menu resolution)
-       * > Other than logging a message, we do not
-       *   handle errors here, because this cannot
-       *   fail - and if it did, there is nothing
-       *   we can do about it anyway... */
-      vid->screen = SDL_SetVideoMode(
-            SDL_DINGUX_MENU_WIDTH, SDL_DINGUX_MENU_HEIGHT,
-            rgb32 ? 32 : 16,
-            surface_flags);
-
-      if (unlikely(!vid->screen))
-         RARCH_ERR("[SDL1]: Critical - Failed to init fallback SDL surface: %s\n", SDL_GetError());
+      RARCH_ERR("[SDL1]: Critical - Failed to init fallback SDL surface: %s\n", SDL_GetError());
 
       vid->mode_valid = false;
    }
    else
    {
       /* Determine whether frame padding is required */
-      if ((sanitized_width  != width) ||
-          (sanitized_height != height))
+      if ((SDL_RS90_WIDTH  != width) ||
+          (SDL_RS90_HEIGHT != height))
       {
-         vid->frame_padding_x = (sanitized_width  - width)  >> 1;
-         vid->frame_padding_y = (sanitized_height - height) >> 1;
+         vid->frame_padding_x = (SDL_RS90_WIDTH  - width)  >> 1;
+         vid->frame_padding_y = (SDL_RS90_HEIGHT - height) >> 1;
 
          /* To prevent garbage pixels in the padding
           * region, must zero out pixel buffer */
@@ -712,6 +596,7 @@ static void sdl_dingux_blit_frame16(sdl_dingux_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
+   // This should be a constant
    unsigned dst_pitch = vid->screen->pitch;
    uint16_t *in_ptr   = src;
    uint16_t *out_ptr  = (uint16_t*)(vid->screen->pixels +
@@ -853,7 +738,7 @@ static bool sdl_dingux_gfx_frame(void *data, const void *frame,
       if (!vid->was_in_menu)
       {
          sdl_dingux_set_output(vid,
-               SDL_DINGUX_MENU_WIDTH, SDL_DINGUX_MENU_HEIGHT, false);
+               SDL_RS90_WIDTH, SDL_RS90_HEIGHT, false);
 
          vid->was_in_menu = true;
       }
@@ -863,8 +748,8 @@ static bool sdl_dingux_gfx_frame(void *data, const void *frame,
 
       /* Blit menu texture to SDL surface */
       sdl_dingux_blit_frame16(vid, vid->menu_texture,
-            SDL_DINGUX_MENU_WIDTH, SDL_DINGUX_MENU_HEIGHT,
-            SDL_DINGUX_MENU_WIDTH * sizeof(uint16_t));
+            SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
+            SDL_RS90_WIDTH * sizeof(uint16_t));
    }
 
    /* Print OSD text, if required */
@@ -908,8 +793,8 @@ static void sdl_dingux_set_texture_frame(void *data, const void *frame, bool rgb
    if (unlikely(
          !vid ||
          rgb32 ||
-         (width > SDL_DINGUX_MENU_WIDTH) ||
-         (height > SDL_DINGUX_MENU_HEIGHT)))
+         (width > SDL_RS90_WIDTH) ||
+         (height > SDL_RS90_HEIGHT)))
       return;
 
    memcpy(vid->menu_texture, frame, width * height * sizeof(uint16_t));
@@ -1072,22 +957,13 @@ static void sdl_dingux_apply_state_changes(void *data)
       unsigned current_height = vid->frame_height;
       unsigned screen_width   = vid->screen->w;
       unsigned screen_height  = vid->screen->h;
-      unsigned sanitized_width;
-      unsigned sanitized_height;
 
       dingux_ipu_set_scaling_mode(ipu_keep_aspect, ipu_integer_scaling);
       vid->keep_aspect     = ipu_keep_aspect;
       vid->integer_scaling = ipu_integer_scaling;
 
-      /* Scaling mode can affect supported display
-       * resolutions. In such cases, update the video
-       * display mode */
-      sdl_dingux_sanitize_frame_dimensions(vid,
-            current_width, current_height,
-            &sanitized_width, &sanitized_height);
-
-      if ((screen_width  != sanitized_width) ||
-          (screen_height != sanitized_height))
+      if ((screen_width  != SDL_RS90_WIDTH) ||
+          (screen_height != SDL_RS90_HEIGHT))
          sdl_dingux_set_output(vid,
                current_width, current_height, vid->rgb32);
    }
