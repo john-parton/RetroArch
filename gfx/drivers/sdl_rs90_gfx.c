@@ -80,6 +80,10 @@ typedef struct sdl_rs90_video
    bool was_in_menu;
    bool quitting;
    bool mode_valid;
+   unsigned content_width;
+   unsigned content_height;
+   unsigned content_pitch;
+   unsigned* scaling_table;
 } sdl_rs90_video_t;
 
 static void sdl_rs90_init_font_color(sdl_rs90_video_t *vid)
@@ -322,6 +326,7 @@ static void sdl_rs90_gfx_free(void *data)
    if (vid->osd_font)
       bitmapfont_free_lut(vid->osd_font);
 
+   free(vid->scaling_table);
    free(vid);
 }
 
@@ -495,6 +500,10 @@ static void *sdl_rs90_gfx_init(const video_info_t *video,
    vid->quitting        = false;
    vid->mode_valid      = true;
    vid->last_frame_time = 0;
+   vid->content_width   = 0;
+   vid->content_height  = 0;
+   vid->content_pitch   = 0;
+   vid->scaling_table = calloc(0, sizeof(unsigned));
 
    SDL_ShowCursor(SDL_DISABLE);
 
@@ -575,6 +584,101 @@ static void sdl_rs90_set_output(
    }
 }
 
+
+static void sdl_rs90_generate_scaling_table(sdl_rs90_video_t *vid,
+   unsigned width, unsigned height, unsigned src_pitch)
+{
+   free(vid->scaling_table);
+
+   vid->content_width = width;
+   vid->content_height = height;
+   vid->content_pitch = src_pitch;
+
+   unsigned* scaling_table = calloc(SDL_RS90_WIDTH * SDL_RS90_HEIGHT, sizeof(unsigned));
+
+   vid->scaling_table = scaling_table;
+   /* I'm not sure which of these need to be uin32_t and which can be 16
+   bit for performance */
+   /* approximate nearest neighbor scale with integer math */
+   uint32_t x_step = (uint32_t)((width << 16) / SDL_RS90_WIDTH); // + 1;
+   uint32_t y_step = (uint32_t)((height << 16) / SDL_RS90_HEIGHT); //  + 1;
+
+   uint32_t row;
+   uint32_t col;
+   uint32_t i = 0;
+   unsigned idx;
+
+   /* 16 bit - divide pitch by 2 */
+   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
+
+   for (row = 0; row < SDL_RS90_HEIGHT; row++) {
+      idx = ((row * y_step) >> 16) * in_stride;
+      for (col = 0; col < SDL_RS90_WIDTH; col++) {
+         scaling_table[i++] = idx + ((x_step * col) >> 16);
+      }
+   }
+}
+
+// stretches
+// static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
+//       uint16_t* src, unsigned width, unsigned height,
+//       unsigned src_pitch)
+// {
+//    /* I'm not sure which of these need to be uin32_t and which can be 16
+//    bit for performance */
+//    /* approximate nearest neighbor scale with integer math */
+//    uint32_t x_step = (uint32_t)((width << 16) / SDL_RS90_WIDTH); // + 1;
+//    uint32_t y_step = (uint32_t)((height << 16) / SDL_RS90_HEIGHT); //  + 1;
+//
+//    uint32_t row;
+//    uint32_t col;
+//    uint32_t idx;
+//
+//    uint16_t *in_ptr;
+//    uint16_t *out_ptr;
+//    /* 16 bit - divide pitch by 2 */
+//    uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
+//    uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
+//
+//    uint16_t* table = calloc(SDL_RS90_WIDTH * SDL_RS90_HEIGHT, sizeof(uint16_t));
+//
+//    for (row = 0; row < SDL_RS90_HEIGHT; row++) {
+//       idx = ((row * y_step) >> 16) * in_stride;
+//       for (col = 0, pos=row; col < SDL_RS90_WIDTH; col++, pos++) {
+//          table[pos] = idx + ((x_step * col) >> 16);
+//       }
+//    }
+//
+//    free(table);
+//
+// }
+
+static void sdl_rs90_blit_frame16_scale_precomputed(sdl_rs90_video_t *vid, uint16_t* src)
+{
+
+   uint32_t row;
+   uint32_t col;
+
+   size_t i = 0;
+
+   uint16_t *out_ptr;
+   /* 16 bit - divide pitch by 2 */
+   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
+
+   uint16_t* scaling_table = vid->scaling_table;
+
+   for (row = 0; row < SDL_RS90_HEIGHT; row++) {
+      out_ptr = (uint16_t*)(vid->screen->pixels) + out_stride * row;
+      for (col = 0; col < SDL_RS90_WIDTH; col++) {
+         // Why the extra shift??? / ???? sizeof(uint16_t)
+        *out_ptr = src[scaling_table[i++]];
+        out_ptr++; // ???? sizeof(uint16_t)
+      }
+   }
+
+}
+
+
 static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
@@ -596,37 +700,49 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
       memcpy(out_ptr, in_ptr, src_pitch * height);
    else
    {
-      /* Otherwise copy pixel data line-by-line */
 
-      /* 16 bit - divide pitch by 2 */
-      uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
-      uint16_t out_stride = (uint16_t)(dst_pitch >> 1);
-      size_t y;
-
-
-      /* Might work, don't know. Need to test. */
-      if (width >= SDL_RS90_WIDTH) {
-         // Crop left 1/2 excess width
-         in_ptr += (width - SDL_RS90_WIDTH) >> 1;
-      } else {
-         // Pad left 1/2 remaining width
-         out_ptr += (SDL_RS90_WIDTH - width) >> 1;
+      if (vid->content_width != width || vid->content_height != height || vid->content_pitch != src_pitch) {
+         sdl_rs90_generate_scaling_table(
+            vid, width, height, src_pitch
+         );
       }
 
-      if (height >= SDL_RS90_HEIGHT) {
-         // Crop top 1/2 excess height
-         in_ptr += in_stride * ((height - SDL_RS90_HEIGHT) >> 1);
-      } else {
-         // Pad top 1/2 remaining height
-         out_ptr += out_stride * ((SDL_RS90_HEIGHT - height) >> 1);
-      }
+      // always use nearest neighbor scale for now
+      sdl_rs90_blit_frame16_scale_precomputed(
+         vid, src
+      );
 
-      for (y = 0; y < height_trunc; y++)
-      {
-         memcpy(out_ptr, in_ptr, width_trunc * sizeof(uint16_t));
-         in_ptr  += in_stride;
-         out_ptr += out_stride;
-      }
+      // /* Otherwise copy pixel data line-by-line */
+      //
+      // /* 16 bit - divide pitch by 2 */
+      // uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
+      // uint16_t out_stride = (uint16_t)(dst_pitch >> 1);
+      // size_t y;
+      //
+      //
+      // /* Might work, don't know. Need to test. */
+      // if (width >= SDL_RS90_WIDTH) {
+      //    // Crop left 1/2 excess width
+      //    in_ptr += (width - SDL_RS90_WIDTH) >> 1;
+      // } else {
+      //    // Pad left 1/2 remaining width
+      //    out_ptr += (SDL_RS90_WIDTH - width) >> 1;
+      // }
+      //
+      // if (height >= SDL_RS90_HEIGHT) {
+      //    // Crop top 1/2 excess height
+      //    in_ptr += in_stride * ((height - SDL_RS90_HEIGHT) >> 1);
+      // } else {
+      //    // Pad top 1/2 remaining height
+      //    out_ptr += out_stride * ((SDL_RS90_HEIGHT - height) >> 1);
+      // }
+      //
+      // for (y = 0; y < height_trunc; y++)
+      // {
+      //    memcpy(out_ptr, in_ptr, width_trunc * sizeof(uint16_t));
+      //    in_ptr  += in_stride;
+      //    out_ptr += out_stride;
+      // }
    }
 }
 
@@ -938,7 +1054,7 @@ static void sdl_rs90_apply_state_changes(void *data)
       return;
 
    vid->keep_aspect = settings->bools.video_dingux_ipu_keep_aspect;
-   vid->scale_integer = settings->bool.video_scale_integer;
+   vid->scale_integer = settings->bools.video_scale_integer;
 
    /* I believe we need to black out the frame buffer
    because our frame size changed.
