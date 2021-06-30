@@ -602,8 +602,7 @@ static void sdl_dingux_blit_frame16(sdl_dingux_video_t *vid,
 {
    unsigned dst_pitch = vid->screen->pitch;
    uint16_t *in_ptr   = src;
-   uint16_t *out_ptr  = (uint16_t*)(vid->screen->pixels +
-         (vid->frame_padding_y * dst_pitch));
+   uint16_t *out_ptr  = (uint16_t*)(vid->screen->pixels);
 
    /* Just copy the upper left hand rectangle for now if the
    screen sizes don't match up */
@@ -625,9 +624,23 @@ static void sdl_dingux_blit_frame16(sdl_dingux_video_t *vid,
       uint16_t out_stride = (uint16_t)(dst_pitch >> 1);
       size_t y;
 
-      /* If SDL surface has horizontal padding,
-       * shift output image to the right */
-      out_ptr += vid->frame_padding_x;
+
+      /* Might work, don't know. Need to test. */
+      if (width >= SDL_RS90_WIDTH) {
+         // Crop left 1/2 excess width
+         in_ptr += (width - SDL_RS90_WIDTH) >> 1;
+      } else {
+         // Pad left 1/2 remaining width
+         out_ptr += (SDL_RS90_WIDTH - width) >> 1;
+      }
+
+      if (height >= SDL_RS90_HEIGHT) {
+         // Crop top 1/2 excess height
+         in_ptr += in_stride * ((height - SDL_RS90_HEIGHT) >> 1);
+      } else {
+         // Pad top 1/2 remaining height
+         out_ptr += out_stride * ((SDL_RS90_HEIGHT - height) >> 1);
+      }
 
       for (y = 0; y < height_trunc; y++)
       {
