@@ -609,6 +609,40 @@ static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
 }
 
 
+static void sdl_rs90_blit_frame16_nearest_neighbor_float(sdl_rs90_video_t *vid,
+      uint16_t* src, unsigned width, unsigned height,
+      unsigned src_pitch)
+{
+   float x_ratio = (float)(width) / SDL_RS90_WIDTH;
+   float y_ratio = (float)(height) / SDL_RS90_HEIGHT;
+
+   uint16_t *in_ptr;
+   uint16_t *out_ptr;
+
+   /* 16 bit - divide pitch by 2 */
+   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
+   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
+
+   uint16_t x;
+   uint16_t y;
+
+   uint16_t x_locations[SDL_RS90_WIDTH];
+
+   for (x = 0; x < SDL_RS90_WIDTH; x++) {
+      x_locations[x] = (uint16_t)(x * x_ratio + 0.5);
+   }
+
+   for (y = 0; y < SDL_RS90_HEIGHT; y++) {
+      out_ptr = (uint16_t*)(vid->screen->pixels) + out_stride * y;
+      in_ptr = src + (uint16_t)(y * y_ratio + 0.5) * in_stride;
+      for (x = 0; x < SDL_RS90_WIDTH; x++) {
+         // can just use array indexing instead of deref/offset
+        *out_ptr = in_ptr[x_locations[x]];
+        out_ptr++;
+     }
+  }
+}
+
 static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
@@ -631,7 +665,7 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
    else
    {
       // always use nearest neighbor scale for now
-      sdl_rs90_blit_frame16_nearest_neighbor(
+      sdl_rs90_blit_frame16_nearest_neighbor_float(
          vid, src, width, height, src_pitch
       );
 
