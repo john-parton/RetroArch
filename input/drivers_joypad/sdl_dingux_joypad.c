@@ -31,6 +31,11 @@
 #include "../../configuration.h"
 #endif
 
+#if !defined(RS90)
+#define SDL_DINGUX_HAS_JOYSTICKS 1
+#define SDL_DINGUX_HAS_HOME 1
+#endif
+
 /* Simple joypad driver designed to rationalise
  * the bizarre keyboard/gamepad hybrid setup
  * of OpenDingux devices */
@@ -66,7 +71,9 @@ typedef struct
 
 typedef struct
 {
+#if defined(SDL_DINGUX_HAS_JOYSTICKS)
    SDL_Joystick *device;
+#endif
 #if defined(HAVE_LIBSHAKE)
    dingux_joypad_rumble_t rumble;
 #endif
@@ -260,12 +267,14 @@ static void sdl_dingux_joypad_connect(void)
    dingux_joypad_t *joypad = (dingux_joypad_t*)&dingux_joypad;
 
    /* Open joypad device */
+   #if defined(SDL_DINGUX_HAS_JOYSTICKS)
    if (SDL_NumJoysticks() > 0)
       joypad->device = SDL_JoystickOpen(0);
 
    /* If joypad exists, get number of axes */
    if (joypad->device)
       joypad->num_axes = SDL_JoystickNumAxes(joypad->device);
+   #endif
 
 #if defined(HAVE_LIBSHAKE)
    /* Configure rumble interface */
@@ -289,8 +298,10 @@ static void sdl_dingux_joypad_disconnect(void)
 {
    dingux_joypad_t *joypad = (dingux_joypad_t*)&dingux_joypad;
 
+   #if defined(SDL_DINGUX_HAS_JOYSTICKS)
    if (joypad->device)
       SDL_JoystickClose(joypad->device);
+   #endif
 
    if (joypad->connected)
       input_autoconfigure_disconnect(0, sdl_dingux_joypad.ident);
@@ -329,7 +340,9 @@ static void sdl_dingux_joypad_destroy(void)
    Shake_Quit();
 #endif
 
+  #if defined(SDL_DINGUX_HAS_HOME)
    BIT64_CLEAR(lifecycle_state, RARCH_MENU_TOGGLE);
+  #endif
 }
 
 static void *sdl_dingux_joypad_init(void *data)
@@ -338,9 +351,12 @@ static void *sdl_dingux_joypad_init(void *data)
    uint32_t sdl_subsystem_flags = SDL_WasInit(0);
 
    memset(joypad, 0, sizeof(dingux_joypad_t));
-   BIT64_CLEAR(lifecycle_state, RARCH_MENU_TOGGLE);
+   #if defined(SDL_DINGUX_HAS_HOME)
+    BIT64_CLEAR(lifecycle_state, RARCH_MENU_TOGGLE);
+   #endif
 
    /* Initialise joystick subsystem, if required */
+   #if defined(SDL_DINGUX_HAS_JOYSTICKS)
    if (sdl_subsystem_flags == 0)
    {
       if (SDL_Init(SDL_INIT_JOYSTICK) < 0)
@@ -351,6 +367,7 @@ static void *sdl_dingux_joypad_init(void *data)
       if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
          return NULL;
    }
+   #endif
 
 #if defined(HAVE_LIBSHAKE)
    /* Initialise rumble interface */
@@ -397,6 +414,7 @@ static void sdl_dingux_joypad_get_buttons(unsigned port, input_bits_t *state)
 
 static int16_t sdl_dingux_joypad_axis_state(unsigned port, uint32_t joyaxis)
 {
+  #if defined(SDL_DINGUX_HAS_JOYSTICKS)
    dingux_joypad_t *joypad = (dingux_joypad_t*)&dingux_joypad;
    int val                 = 0;
    int axis                = -1;
@@ -437,6 +455,9 @@ static int16_t sdl_dingux_joypad_axis_state(unsigned port, uint32_t joyaxis)
       return 0;
 
    return val;
+   #else
+     return 0;
+   #endif
 }
 
 static int16_t sdl_dingux_joypad_axis(unsigned port, uint32_t joyaxis)
@@ -447,6 +468,9 @@ static int16_t sdl_dingux_joypad_axis(unsigned port, uint32_t joyaxis)
    return sdl_dingux_joypad_axis_state(port, joyaxis);
 }
 
+
+// This is subtly broken on the RS-90
+// The workaround is to manually bind all of the inputs
 static int16_t sdl_dingux_joypad_state(
       rarch_joypad_info_t *joypad_info,
       const struct retro_keybind *binds,
@@ -465,16 +489,20 @@ static int16_t sdl_dingux_joypad_state(
       /* Auto-binds are per joypad, not per user. */
       const uint64_t joykey  = (binds[i].joykey != NO_BTN)
          ? binds[i].joykey  : joypad_info->auto_binds[i].joykey;
+      #if SDL_DINGUX_HAS_JOYSTICKS
       const uint32_t joyaxis = (binds[i].joyaxis != AXIS_NONE)
          ? binds[i].joyaxis : joypad_info->auto_binds[i].joyaxis;
-      
-      if ((uint16_t)joykey != NO_BTN && 
+      #endif
+
+      if ((uint16_t)joykey != NO_BTN &&
             (joypad->pad_state & (1 << (uint16_t)joykey)))
          ret |= (1 << i);
+      #if SDL_DINGUX_HAS_JOYSTICKS
       else if (joyaxis != AXIS_NONE &&
-            ((float)abs(sdl_dingux_joypad_axis_state(port_idx, joyaxis)) 
+            ((float)abs(sdl_dingux_joypad_axis_state(port_idx, joyaxis))
              / 0x8000) > joypad_info->axis_threshold)
          ret |= (1 << i);
+      #endif
    }
 
    return ret;
@@ -491,11 +519,13 @@ static void sdl_dingux_joypad_poll(void)
     * per frame the input is often 'missed'.
     * If the toggle key gets pressed, we therefore have
     * to wait until the *next* frame to release it */
+   #if defined(SDL_DINGUX_HAS_HOME)
    if (joypad->menu_toggle)
    {
       BIT64_CLEAR(lifecycle_state, RARCH_MENU_TOGGLE);
       joypad->menu_toggle = false;
    }
+   #endif
 
    /* All digital inputs map to keyboard keys
     * - X:      SDLK_SPACE
@@ -571,10 +601,12 @@ static void sdl_dingux_joypad_poll(void)
                case SDLK_LEFT:
                   BIT16_SET(joypad->pad_state, RETRO_DEVICE_ID_JOYPAD_LEFT);
                   break;
+               #if defined(SDL_DINGUX_HAS_HOME)
                case SDLK_HOME:
                   BIT64_SET(lifecycle_state, RARCH_MENU_TOGGLE);
                   joypad->menu_toggle = true;
                   break;
+               #endif
                default:
                   break;
             }
@@ -641,6 +673,7 @@ static void sdl_dingux_joypad_poll(void)
 
    /* Analog inputs come from the joypad device,
     * if connected */
+   #if defined(SDL_DINGUX_HAS_JOYSTICKS)
    if (joypad->device)
    {
       int16_t axis_value;
@@ -676,6 +709,7 @@ static void sdl_dingux_joypad_poll(void)
                (axis_value < -0x7FFF) ? -0x7FFF : axis_value;
       }
    }
+   #endif
 }
 
 input_device_driver_t sdl_dingux_joypad = {

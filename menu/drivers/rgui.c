@@ -3005,7 +3005,9 @@ static void load_custom_theme(rgui_t *rgui, rgui_theme_t *theme_colors, const ch
    config_file_t *conf         = NULL;
    const char *wallpaper_key   = NULL;
    bool success                = false;
-#if defined(DINGUX)
+#if defined(RS90)
+   unsigned aspect_ratio       = RGUI_ASPECT_RATIO_3_2;
+#elif defined(DINGUX)
    unsigned aspect_ratio       = RGUI_ASPECT_RATIO_4_3;
 #else
    settings_t *settings        = config_get_ptr();
@@ -5434,15 +5436,23 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
     * the usual 426, since the last two bits of the
     * width value must be zero... */
    unsigned max_frame_buf_width = 424;
+#elif defined(RS90)
+   /* The RS-90 use a fixed framebuffer size
+    * of 240x160 */
+   unsigned max_frame_buf_width = 240;
+
 #elif defined(DINGUX)
-   /* Dingux devices use a fixed framebuffer size
+   /* Dingux devices other than the RS-90 use a fixed framebuffer size
     * of 320x240 */
    unsigned max_frame_buf_width = 320;
 #else
    struct video_viewport vp;
    unsigned max_frame_buf_width = RGUI_MAX_FB_WIDTH;
 #endif
-#if defined(DINGUX)
+#if defined(RS90)
+   unsigned aspect_ratio        = RGUI_ASPECT_RATIO_3_2;
+   unsigned aspect_ratio_lock   = RGUI_ASPECT_RATIO_LOCK_NONE;
+#elif defined(DINGUX)
    unsigned aspect_ratio        = RGUI_ASPECT_RATIO_4_3;
    unsigned aspect_ratio_lock   = RGUI_ASPECT_RATIO_LOCK_NONE;
 #else
@@ -5468,8 +5478,12 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
     * dimensions at will, have to read currently set
     * values */
    rgui->frame_buf.height = p_disp->framebuf_height;
+#elif defined(RS90)
+   /* RS-90 use a fixed framebuffer size
+    * of 240x160 */
+   rgui->frame_buf.height = 160;
 #elif defined(DINGUX)
-   /* Dingux devices use a fixed framebuffer size
+   /* Dingux devices other than the RS-90 use a fixed framebuffer size
     * of 320x240 */
    rgui->frame_buf.height = 240;
 #else
@@ -6586,7 +6600,10 @@ static void rgui_frame(void *data, video_frame_info_t *video_info)
    settings_t *settings                = config_get_ptr();
    bool bg_filler_thickness_enable     = settings->bools.menu_rgui_background_filler_thickness_enable;
    bool border_filler_thickness_enable = settings->bools.menu_rgui_border_filler_thickness_enable;
-#if defined(DINGUX)
+#if defined(RS90)
+   unsigned aspect_ratio               = RGUI_ASPECT_RATIO_3_2;
+   unsigned aspect_ratio_lock          = RGUI_ASPECT_RATIO_LOCK_NONE;
+#elif defined(DINGUX)
    unsigned aspect_ratio               = RGUI_ASPECT_RATIO_4_3;
    unsigned aspect_ratio_lock          = RGUI_ASPECT_RATIO_LOCK_NONE;
 #else
@@ -6738,7 +6755,11 @@ static void rgui_frame(void *data, video_frame_info_t *video_info)
             break;
          case RGUI_ASPECT_RATIO_3_2:
          case RGUI_ASPECT_RATIO_3_2_CENTRE:
-            default_fb_width = 360;
+            #if defined(RS90)
+              default_fb_width = 240;
+            #else
+              default_fb_width = 360;
+            #endif
             break;
          case RGUI_ASPECT_RATIO_5_3:
          case RGUI_ASPECT_RATIO_5_3_CENTRE:
