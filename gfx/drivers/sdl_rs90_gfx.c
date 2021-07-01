@@ -80,6 +80,10 @@ typedef struct sdl_rs90_video
    bool was_in_menu;
    bool quitting;
    bool mode_valid;
+   unsigned content_width;
+   unsigned content_height;
+   uint16_t *content_scale_x_locations;
+   uint16_t *content_scale_y_locations;
 } sdl_rs90_video_t;
 
 static void sdl_rs90_init_font_color(sdl_rs90_video_t *vid)
@@ -577,6 +581,8 @@ static void sdl_rs90_set_output(
 
 
 // stretches
+// approximate nearest-neighbor scale using bitshift and integer math
+// (no floats)
 static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
@@ -613,34 +619,61 @@ static void sdl_rs90_blit_frame16_nearest_neighbor_float(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
-   float x_ratio = (float)(width) / SDL_RS90_WIDTH;
-   float y_ratio = (float)(height) / SDL_RS90_HEIGHT;
+   uint16_t viewport_width;
+   uint16_t viewport_height;
+
+   // (SDL_RS90_WIDTH / SDL_RS90_HEIGHT) > (width / height)
+   // is the same as
+   // height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT
+   // assuming all variables positive and nothing overflows
+   // avoids division and rounding
+   // We could avoid some multiplications if we used two temporary variables
+   // but probably fine
+   if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
+      // Integer math fine
+      viewport_width = (width * SDL_RS90_HEIGHT) / height;
+      viewport_height = SDL_RS90_HEIGHT;
+   } else {
+      // Integer math fine
+      viewport_width = SDL_RS90_WIDTH;
+      viewport_height = (height * SDL_RS90_WIDTH) / width;
+   }
+
 
    uint16_t *in_ptr;
    uint16_t *out_ptr;
+   uint16_t padding_left = (SDL_RS90_WIDTH - viewport_width) >> 1;
+   uint16_t padding_top = (SDL_RS90_HEIGHT - viewport_height) >> 1;
 
    /* 16 bit - divide pitch by 2 */
    uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
    uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
 
+   float x_scale = (float)(width) / (float)(viewport_width);
+   float y_scale = (float)(height) / (float)(viewport_height);
+
    uint16_t x;
    uint16_t y;
 
-   uint16_t x_locations[SDL_RS90_WIDTH];
+   uint16_t *x_locations;
 
-   for (x = 0; x < SDL_RS90_WIDTH; x++) {
-      x_locations[x] = (uint16_t)(x * x_ratio + 0.5);
+   x_locations = calloc(viewport_width, sizeof(uint16_t));
+
+   for (x = 0; x < viewport_width; x++) {
+      x_locations[x] = (uint16_t)(x * x_scale + 0.5);
    }
 
-   for (y = 0; y < SDL_RS90_HEIGHT; y++) {
-      out_ptr = (uint16_t*)(vid->screen->pixels) + out_stride * y;
-      in_ptr = src + (uint16_t)(y * y_ratio + 0.5) * in_stride;
-      for (x = 0; x < SDL_RS90_WIDTH; x++) {
+   for (y = 0; y < viewport_height; y++) {
+      out_ptr = (uint16_t*)(vid->screen->pixels) + padding_left + out_stride * (y + padding_top);
+      in_ptr = src + (uint16_t)(y * y_scale + 0.5) * in_stride;
+      for (x = 0; x < viewport_width; x++) {
          // can just use array indexing instead of deref/offset
         *out_ptr = in_ptr[x_locations[x]];
         out_ptr++;
      }
   }
+
+  free(x_locations);
 }
 
 static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
