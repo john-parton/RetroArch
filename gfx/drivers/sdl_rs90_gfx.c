@@ -62,6 +62,8 @@ typedef struct sdl_rs90_video
    retro_time_t ff_frame_time_min;
    SDL_Surface *screen;
    bitmapfont_lut_t *osd_font;
+   unsigned content_width;
+   unsigned content_height;
    unsigned frame_width;
    unsigned frame_height;
    unsigned frame_padding_x;
@@ -80,10 +82,6 @@ typedef struct sdl_rs90_video
    bool was_in_menu;
    bool quitting;
    bool mode_valid;
-   unsigned content_width;
-   unsigned content_height;
-   uint16_t *content_scale_x_locations;
-   uint16_t *content_scale_y_locations;
 } sdl_rs90_video_t;
 
 static void sdl_rs90_init_font_color(sdl_rs90_video_t *vid)
@@ -488,6 +486,8 @@ static void *sdl_rs90_gfx_init(const video_info_t *video,
       goto error;
    }
 
+   vid->content_width   = SDL_RS90_WIDTH;
+   vid->content_height  = SDL_RS90_HEIGHT;
    vid->frame_width     = SDL_RS90_WIDTH;
    vid->frame_height    = SDL_RS90_HEIGHT;
    vid->rgb32           = video->rgb32;
@@ -533,13 +533,28 @@ static void sdl_rs90_set_output(
          (SDL_HWSURFACE | SDL_TRIPLEBUF | SDL_FULLSCREEN) :
          (SDL_HWSURFACE | SDL_FULLSCREEN);
 
-   /* Cache set parameters */
-   vid->frame_width  = width;
-   vid->frame_height = height;
+   vid->content_width = width;
+   vid->content_height = height;
 
-   /* Reset frame padding */
-   vid->frame_padding_x = 0;
-   vid->frame_padding_y = 0;
+   // TODO: If integer scaling is on and width/height is smaller
+   // than the screen size, then don't do scaling
+   if (vid->keep_aspect) {
+      if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
+         // Integer math fine
+         vid->frame_width = (width * SDL_RS90_HEIGHT) / height;
+         vid->frame_height = SDL_RS90_HEIGHT;
+      } else {
+         // Integer math fine
+         vid->frame_width = SDL_RS90_WIDTH;
+         vid->frame_height = (height * SDL_RS90_WIDTH) / width;
+      }
+   } else {
+      vid->frame_width = SDL_RS90_WIDTH;
+      vid->frame_height = SDL_RS90_HEIGHT;
+   }
+
+   vid->frame_padding_x = (SDL_RS90_WIDTH - viewport_width) >> 1;
+   vid->frame_padding_y = (SDL_RS90_HEIGHT - viewport_height) >> 1;
 
    /* Attempt to change video mode */
    vid->screen = SDL_SetVideoMode(
@@ -556,13 +571,8 @@ static void sdl_rs90_set_output(
    else
    {
       /* Determine whether frame padding is required */
-      if ((SDL_RS90_WIDTH  != width) ||
-          (SDL_RS90_HEIGHT != height))
+      if (vid->frame_padding > 0 || vid->frame_padding_y > 0)
       {
-         // No negative paddings!
-         vid->frame_padding_x = width < SDL_RS90_WIDTH ? (SDL_RS90_WIDTH  - width) >> 1 : 0;
-         vid->frame_padding_y = height < SDL_RS90_HEIGHT ? (SDL_RS90_HEIGHT - height) >> 1 : 0;
-
          /* To prevent garbage pixels in the padding
           * region, must zero out pixel buffer */
          if (SDL_MUSTLOCK(vid->screen))
@@ -590,8 +600,9 @@ static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
    /* I'm not sure which of these need to be uin32_t and which can be 16
    bit for performance */
    /* approximate nearest neighbor scale with integer math */
-   uint32_t x_step = (uint32_t)((width << 16) / SDL_RS90_WIDTH); // + 1;
-   uint32_t y_step = (uint32_t)((height << 16) / SDL_RS90_HEIGHT); //  + 1;
+   uint32_t x_step = (uint32_t)((width << 16) / vid->frame_width); // + 1;
+   // Approximately width * 65536 / SDL_RS90_WIDTH
+   uint32_t y_step = (uint32_t)((height << 16) / vid->frame_height); //  + 1;
 
    uint32_t row;
    uint32_t col;
@@ -602,11 +613,10 @@ static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
    uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
    uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
 
-   for (row = 0; row < SDL_RS90_HEIGHT; row++) {
-      out_ptr = (uint16_t*)(vid->screen->pixels) + out_stride * row;
+   for (row = 0; row < vid->frame_height; row++) {
+      out_ptr = (uint16_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * (row + vid->frame_padding_y);
       in_ptr = src + ((row * y_step) >> 16) * in_stride;
-      for (col = 0; col < SDL_RS90_WIDTH; col++) {
-         // Why the extra shift??? / ???? sizeof(uint16_t)
+      for (col = 0; col < vid->frame_width; col++) {
         *out_ptr = *(in_ptr + ((x_step * col) >> 16));
         out_ptr++; // ???? sizeof(uint16_t)
       }
@@ -614,6 +624,72 @@ static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
 
 }
 
+static void sdl_rs90_blit_frame16_nearest_neighbor_keep(sdl_rs90_video_t *vid,
+      uint16_t* src, unsigned width, unsigned height,
+      unsigned src_pitch)
+{
+   uint16_t viewport_width;
+   uint16_t viewport_height;
+
+   // Move all this to set video mode
+   // (SDL_RS90_WIDTH / SDL_RS90_HEIGHT) > (width / height)
+   // is the same as
+   // height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT
+   // assuming all variables positive and nothing overflows
+   // avoids division and rounding
+   // We could avoid some multiplications if we used two temporary variables
+   // but probably fine
+   if (keep_aspect) {
+      if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
+         // Integer math fine
+         viewport_width = (width * SDL_RS90_HEIGHT) / height;
+         viewport_height = SDL_RS90_HEIGHT;
+      } else {
+         // Integer math fine
+         viewport_width = SDL_RS90_WIDTH;
+         viewport_height = (height * SDL_RS90_WIDTH) / width;
+      }
+   } else {
+      viewport_width = SDL_RS90_WIDTH;
+      viewport_height = SDL_RS90_HEIGHT;
+   }
+   uint16_t padding_left = (SDL_RS90_WIDTH - viewport_width) >> 1;
+   uint16_t padding_top = (SDL_RS90_HEIGHT - viewport_height) >> 1;
+
+
+   uint16_t *in_ptr;
+   uint16_t *out_ptr;
+
+   /* 16 bit - divide pitch by 2 */
+   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
+   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
+
+   float x_scale = (float)(width) / (float)(viewport_width);
+   float y_scale = (float)(height) / (float)(viewport_height);
+
+   uint16_t x;
+   uint16_t y;
+
+   uint16_t *x_locations;
+
+   x_locations = calloc(viewport_width, sizeof(uint16_t));
+
+   for (x = 0; x < viewport_width; x++) {
+      x_locations[x] = (uint16_t)(x * x_scale + 0.5);
+   }
+
+   for (y = 0; y < viewport_height; y++) {
+      out_ptr = (uint16_t*)(vid->screen->pixels) + padding_left + out_stride * (y + padding_top);
+      in_ptr = src + (uint16_t)(y * y_scale + 0.5) * in_stride;
+      for (x = 0; x < viewport_width; x++) {
+         // can just use array indexing instead of deref/offset
+        *out_ptr = in_ptr[x_locations[x]];
+        out_ptr++;
+     }
+  }
+
+  free(x_locations);
+}
 
 static void sdl_rs90_blit_frame16_nearest_neighbor_float(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
@@ -698,7 +774,7 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
    else
    {
       // always use nearest neighbor scale for now
-      sdl_rs90_blit_frame16_nearest_neighbor_float(
+      sdl_rs90_blit_frame16_nearest_neighbor(
          vid, src, width, height, src_pitch
       );
 
@@ -816,8 +892,8 @@ static bool sdl_rs90_gfx_frame(void *data, const void *frame,
        * the previous frame, or width/height have changed */
       if (unlikely(
             vid->was_in_menu ||
-            (vid->frame_width  != width) ||
-            (vid->frame_height != height)))
+            (vid->content_width  != width) ||
+            (vid->content_height != height)))
          sdl_rs90_set_output(vid, width, height, vid->rgb32);
 
       /* Must always lock SDL surface before
@@ -926,8 +1002,8 @@ static void sdl_rs90_gfx_set_nonblock_state(void *data, bool toggle,
    /* Check whether vsync status has changed */
    if (vid->vsync != vsync)
    {
-      unsigned current_width  = vid->frame_width;
-      unsigned current_height = vid->frame_height;
+      unsigned current_width  = vid->content_width;
+      unsigned current_height = vid->content_height;
       vid->vsync              = vsync;
 
       /* Update video mode */
