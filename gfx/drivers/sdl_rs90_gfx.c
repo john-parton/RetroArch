@@ -715,7 +715,7 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
 }
 
 
-static void sdl_rs90_blit_frame16_scale(sdl_rs90_video_t *vid,
+static void sdl_rs90_blit_frame32_scale(sdl_rs90_video_t *vid,
       uint32_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
