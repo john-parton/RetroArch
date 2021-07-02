@@ -62,12 +62,15 @@ typedef struct sdl_rs90_video
    retro_time_t ff_frame_time_min;
    SDL_Surface *screen;
    bitmapfont_lut_t *osd_font;
+   // Scaling/padding/cropping parameters
    unsigned content_width;
    unsigned content_height;
    unsigned frame_width;
    unsigned frame_height;
    unsigned frame_padding_x;
    unsigned frame_padding_y;
+   unsigned frame_crop_x;
+   unsigned frame_crop_y;
 #if defined(DINGUX_BETA)
    enum dingux_refresh_rate refresh_rate;
 #endif
@@ -121,8 +124,8 @@ static void sdl_rs90_blit_text16(
    bool **font_lut              = vid->osd_font->lut;
    /* 16 bit - divide pitch by 2 */
    uint16_t screen_stride       = (uint16_t)(vid->screen->pitch >> 1);
-   uint16_t screen_width        = vid->screen->w;
-   uint16_t screen_height       = vid->screen->h;
+   uint16_t screen_width        = vid->frame_width;
+   uint16_t screen_height       = vid->frame_height;
    unsigned x_pos               = x + vid->frame_padding_x;
    unsigned y_pos               = (y > (screen_height >> 1)) ?
          (y - vid->frame_padding_y) : (y + vid->frame_padding_y);
@@ -536,31 +539,61 @@ static void sdl_rs90_set_output(
    vid->content_width = width;
    vid->content_height = height;
 
-   // TODO: If integer scaling is on and width/height is smaller
-   // than the screen size, then don't do scaling
-   if (vid->keep_aspect) {
-      if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
-         // Integer math fine
-         vid->frame_width = (width * SDL_RS90_HEIGHT) / height;
-         vid->frame_height = SDL_RS90_HEIGHT;
-      } else {
-         // Integer math fine
+   // Technically, "scale_integer" here just means "do not scale"
+   // If the content is larger, we crop, otherwise we just center it in the
+   // frame.
+   // If we want to support a core with an absolutely tiny screen,
+   // we should do actual integer scaling
+   if (vid->scale_integer) {
+      if (width > SDL_RS90_WIDTH) {
          vid->frame_width = SDL_RS90_WIDTH;
-         vid->frame_height = (height * SDL_RS90_WIDTH) / width;
+         vid->frame_crop_x = (width - SDL_RS90_WIDTH) >> 1;
+         vid->frame_padding_x = 0;
+      } else {
+         vid->frame_width = width;
+         vid->frame_crop_x = 0;
+         vid->frame_padding_x = (SDL_RS90_WIDTH - width) >> 1;
+      }
+      if (height > SDL_RS90_HEIGHT) {
+         vid->frame_height = SDL_RS90_HEIGHT;
+         vid->frame_crop_y = (height - SDL_RS90_HEIGHT) >> 1;
+         vid->frame_padding_y = 0;
+      } else {
+         vid->frame_height = height;
+         vid->frame_crop_y = 0;
+         vid->frame_padding_y = (SDL_RS90_HEIGHT - height) >> 1;
       }
    } else {
-      vid->frame_width = SDL_RS90_WIDTH;
-      vid->frame_height = SDL_RS90_HEIGHT;
+      // Normal scaling
+
+      if (vid->keep_aspect) {
+         if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
+            // Integer math fine
+            vid->frame_width = (width * SDL_RS90_HEIGHT) / height;
+            vid->frame_height = SDL_RS90_HEIGHT;
+         } else {
+            // Integer math fine
+            vid->frame_width = SDL_RS90_WIDTH;
+            vid->frame_height = (height * SDL_RS90_WIDTH) / width;
+         }
+      } else {
+         vid->frame_width = SDL_RS90_WIDTH;
+         vid->frame_height = SDL_RS90_HEIGHT;
+      }
+
+      vid->frame_crop_x = 0;
+      vid->frame_padding_x = (SDL_RS90_WIDTH - vid->frame_width) >> 1;
+      vid->frame_crop_y = 0;
+      vid->frame_padding_y = (SDL_RS90_HEIGHT - vid->frame_height) >> 1;
    }
 
-   vid->frame_padding_x = (SDL_RS90_WIDTH - vid->frame_width) >> 1;
-   vid->frame_padding_y = (SDL_RS90_HEIGHT - vid->frame_height) >> 1;
 
    /* Attempt to change video mode */
    vid->screen = SDL_SetVideoMode(
-         SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
-         rgb32 ? 32 : 16,
-         surface_flags);
+      SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
+      rgb32 ? 32 : 16,
+      surface_flags
+   );
 
    /* Check whether selected display mode is valid */
    if (unlikely(!vid->screen))
@@ -593,10 +626,11 @@ static void sdl_rs90_set_output(
 // stretches
 // approximate nearest-neighbor scale using bitshift and integer math
 // (no floats)
-static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
+static void sdl_rs90_blit_frame16_scale(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
+   // crop_x and crop_y should both be zero?
    /* I'm not sure which of these need to be uin32_t and which can be 16
    bit for performance */
    /* approximate nearest neighbor scale with integer math */
@@ -619,42 +653,82 @@ static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
    // Tons of -> operations
    for (row = 0; row < vid->frame_height; row++) {
       out_ptr = (uint16_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * (row + vid->frame_padding_y);
-      in_ptr = src + ((row * y_step) >> 16) * in_stride;
-      // if width == frame_width, we can do memcpy here
+      in_ptr = src + (((row * y_step) >> 16)) * in_stride;
+      // width == content_width
       for (col = 0; col < vid->frame_width; col++) {
         *out_ptr = *(in_ptr + ((x_step * col) >> 16));
         out_ptr++;
       }
    }
+}
 
+static void sdl_rs90_blit_frame16_no_scale(sdl_rs90_video_t *vid,
+      uint16_t* src, unsigned width, unsigned height,
+      unsigned src_pitch)
+{
+
+   /* 16 bit - divide pitch by 2 */
+   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
+   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
+
+   // Manipulate offsets so that padding/crop are applied correctly
+   uint16_t *in_ptr = src + vid->frame_crop_x + vid->frame_crop_y * in_stride;
+   uint16_t *out_ptr = (uint16_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * vid->frame_padding_y;
+
+   size_t y = vid->frame_height;
+
+   // Optimize these loops some
+   do {
+      memcpy(out_ptr, in_ptr, vid->frame_width * sizeof(uint16_t));
+      in_ptr += in_stride;
+      out_ptr += out_stride;
+   } while (--y);
 }
 
 static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
-   unsigned dst_pitch = vid->screen->pitch;
-   uint16_t *in_ptr   = src;
-   uint16_t *out_ptr  = (uint16_t*)(vid->screen->pixels);
-
-   /* Just copy the upper left hand rectangle for now if the
-   screen sizes don't match up */
-   /* Might be slightly nicer to do a center crop */
-   /* Scaling should be done in shaders, I guess */
-   unsigned width_trunc = width > SDL_RS90_WIDTH ? SDL_RS90_WIDTH : width;
-   unsigned height_trunc = height > SDL_RS90_HEIGHT ? SDL_RS90_HEIGHT : height;
-
    /* If source and destination buffers have the
     * same pitch, perform fast copy of raw pixel data */
-   if (src_pitch == dst_pitch && height == height_trunc)
-      memcpy(out_ptr, in_ptr, src_pitch * height);
+   // Make sure this code path is used for GBA
+   if (src_pitch == vid->screen->pitch && height == SDL_RS90_HEIGHT)
+      memcpy(vid->screen->pixels, src, src_pitch * SDL_RS90_HEIGHT);
    else
    {
-      // always use nearest neighbor scale for now
-      sdl_rs90_blit_frame16_nearest_neighbor(
-         vid, src, width, height, src_pitch
-      );
+      if (vid->scale_integer) {
+         sdl_rs90_blit_frame16_no_scale(
+            vid, src, width, height, src_pitch
+         );
+      } else {
+         sdl_rs90_blit_frame16_scale(
+            vid, src, width, height, src_pitch
+         );
+      }
    }
+}
+
+static void sdl_rs90_blit_frame32_no_scale(sdl_rs90_video_t *vid,
+      uint32_t* src, unsigned width, unsigned height,
+      unsigned src_pitch)
+{
+
+   /* 16 bit - divide pitch by 2 */
+   uint32_t in_stride  = (uint32_t)(src_pitch >> 2);
+   uint32_t out_stride = (uint32_t)(vid->screen->pitch >> 2);
+
+   // Manipulate offsets so that padding/crop are applied correctly
+   uint32_t *in_ptr = src + vid->frame_crop_x + vid->frame_crop_y * in_stride;
+   uint32_t *out_ptr = (uint32_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * vid->frame_padding_y;
+
+   size_t y = vid->frame_height;
+
+   // Optimize these loops some
+   do {
+      memcpy(out_ptr, in_ptr, vid->frame_width * sizeof(uint32_t));
+      in_ptr += in_stride;
+      out_ptr += out_stride;
+   } while (--y);
 }
 
 static void sdl_rs90_blit_frame32(sdl_rs90_video_t *vid,
@@ -964,14 +1038,13 @@ static void sdl_rs90_apply_state_changes(void *data)
    if (!vid || !settings)
       return;
 
-   vid->keep_aspect = settings->bools.video_dingux_ipu_keep_aspect;
-   vid->scale_integer = settings->bools.video_scale_integer;
-
-   /* I believe we need to black out the frame buffer
-   because our frame size changed.
-   Probably just re-init entire display
-   */
-
+   if (vid->keep_aspect != settings->bools.video_dingux_ipu_keep_aspect || vid->scale_integer != settings->bools.video_scale_integer) {
+      vid->keep_aspect = settings->bools.video_dingux_ipu_keep_aspect;
+      vid->scale_integer = settings->bools.video_scale_integer;
+      // Invalidate crop/padding so that it's re-computed on next frame
+      vid->content_width = 0;
+      vid->content_height = 0;
+   }
 }
 
 static uint32_t sdl_rs90_get_flags(void *data)
