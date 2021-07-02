@@ -622,44 +622,49 @@ static void sdl_rs90_set_output(
    }
 }
 
-
-// stretches
 // approximate nearest-neighbor scale using bitshift and integer math
-// (no floats)
 static void sdl_rs90_blit_frame16_scale(sdl_rs90_video_t *vid,
       uint16_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
-   // crop_x and crop_y should both be zero?
-   /* I'm not sure which of these need to be uin32_t and which can be 16
-   bit for performance */
-   /* approximate nearest neighbor scale with integer math */
-   uint32_t x_step = (uint32_t)((width << 16) / vid->frame_width); // + 1;
-   // Approximately width * 65536 / SDL_RS90_WIDTH
-   uint32_t y_step = (uint32_t)((height << 16) / vid->frame_height); //  + 1;
+   uint32_t x_step = (
+      (((uint32_t)(width) << 16) + 1) / vid->frame_width
+   );
+   uint32_t y_step = (
+      (((uint32_t)(height) << 16) + 1) / vid->frame_height
+   );
 
-   // Unsigned?
-   uint32_t row;
-   uint32_t col;
+   uint32_t x;
+   uint32_t y;
 
+   size_t row;
+   size_t col;
+   /* 16 bit - divide pitch by 2 */
+   size_t in_stride  = (size_t)(src_pitch >> 1);
+   size_t out_stride = (size_t)(vid->screen->pitch >> 1);
+
+   // Apply x/y padding offset
+   uint16_t *top_corner = (uint16_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * vid->frame_padding_y;
+   // Temporaries for pointers
    uint16_t *in_ptr;
    uint16_t *out_ptr;
-   /* 16 bit - divide pitch by 2 */
-   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
-   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
 
    // Optimize these loops further
    // Consider saving these computation in an array and indexing over them
    // Would likely be slower due to cache (non-)locality, but it's worth a shot
    // Tons of -> operations
+   y = 0;
    for (row = 0; row < vid->frame_height; row++) {
-      out_ptr = (uint16_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * (row + vid->frame_padding_y);
-      in_ptr = src + (((row * y_step) >> 16)) * in_stride;
-      // width == content_width
-      for (col = 0; col < vid->frame_width; col++) {
-        *out_ptr = *(in_ptr + ((x_step * col) >> 16));
+      out_ptr = top_corner + out_stride * row;
+      in_ptr = src + (y >> 16) * in_stride;
+      x = 0;
+      col = vid->frame_width;
+      do {
+        *out_ptr = in_ptr[x >> 16];
         out_ptr++;
-      }
+        x += x_step;
+      } while (--col);
+      y += y_step;
    }
 }
 
@@ -710,42 +715,48 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
 }
 
 
-// stretches
-// approximate nearest-neighbor scale using bitshift and integer math
-// (no floats)
-static void sdl_rs90_blit_frame32_scale(sdl_rs90_video_t *vid,
+static void sdl_rs90_blit_frame16_scale(sdl_rs90_video_t *vid,
       uint32_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
-   // crop_x and crop_y should both be zero?
-   /* I'm not sure which of these need to be uin32_t and which can be 16
-   bit for performance */
-   /* approximate nearest neighbor scale with integer math */
-   uint32_t x_step = (uint32_t)((width << 16) / vid->frame_width); // + 1;
-   // Approximately width * 65536 / SDL_RS90_WIDTH
-   uint32_t y_step = (uint32_t)((height << 16) / vid->frame_height); //  + 1;
+   uint32_t x_step = (
+      (((uint32_t)(width) << 16) + 1) / vid->frame_width
+   );
+   uint32_t y_step = (
+      (((uint32_t)(height) << 16) + 1) / vid->frame_height
+   );
 
-   uint32_t row;
-   uint32_t col;
+   uint32_t x;
+   uint32_t y;
 
-   uint32_t *in_ptr;
-   uint32_t *out_ptr;
-   /* 32 bit - divide pitch by 4 */
+   size_t row;
+   size_t col;
+   /* 32 bit - divide pitch by 2 */
    size_t in_stride  = (size_t)(src_pitch >> 2);
    size_t out_stride = (size_t)(vid->screen->pitch >> 2);
+
+   // Apply x/y padding offset
+   uint32_t *top_corner = (uint32_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * vid->frame_padding_y;
+   // Temporaries for pointers
+   uint32_t *in_ptr;
+   uint32_t *out_ptr;
 
    // Optimize these loops further
    // Consider saving these computation in an array and indexing over them
    // Would likely be slower due to cache (non-)locality, but it's worth a shot
    // Tons of -> operations
+   y = 0;
    for (row = 0; row < vid->frame_height; row++) {
-      out_ptr = (uint32_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * (row + vid->frame_padding_y);
-      in_ptr = src + (((row * y_step) >> 16)) * in_stride;
-      // width == content_width
-      for (col = 0; col < vid->frame_width; col++) {
-        *out_ptr = *(in_ptr + ((x_step * col) >> 16));
+      out_ptr = top_corner + out_stride * row;
+      in_ptr = src + (y >> 16) * in_stride;
+      x = 0;
+      col = vid->frame_width;
+      do {
+        *out_ptr = in_ptr[x >> 16];
         out_ptr++;
-      }
+        x += x_step;
+      } while (--col);
+      y += y_step;
    }
 }
 
