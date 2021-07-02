@@ -553,8 +553,8 @@ static void sdl_rs90_set_output(
       vid->frame_height = SDL_RS90_HEIGHT;
    }
 
-   vid->frame_padding_x = (SDL_RS90_WIDTH - viewport_width) >> 1;
-   vid->frame_padding_y = (SDL_RS90_HEIGHT - viewport_height) >> 1;
+   vid->frame_padding_x = (SDL_RS90_WIDTH - vid->frame_width) >> 1;
+   vid->frame_padding_y = (SDL_RS90_HEIGHT - vid->frame_height) >> 1;
 
    /* Attempt to change video mode */
    vid->screen = SDL_SetVideoMode(
@@ -571,7 +571,7 @@ static void sdl_rs90_set_output(
    else
    {
       /* Determine whether frame padding is required */
-      if (vid->frame_padding > 0 || vid->frame_padding_y > 0)
+      if (vid->frame_padding_x > 0 || vid->frame_padding_y > 0)
       {
          /* To prevent garbage pixels in the padding
           * region, must zero out pixel buffer */
@@ -613,143 +613,20 @@ static void sdl_rs90_blit_frame16_nearest_neighbor(sdl_rs90_video_t *vid,
    uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
    uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
 
+   // Optimize these loops further
+   // Consider saving these computation in an array and indexing over them
+   // Would likely be slower due to cache (non-)locality, but it's worth a shot
+   // Tons of -> operations
    for (row = 0; row < vid->frame_height; row++) {
       out_ptr = (uint16_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * (row + vid->frame_padding_y);
       in_ptr = src + ((row * y_step) >> 16) * in_stride;
+      // if width == frame_width, we can do memcpy here
       for (col = 0; col < vid->frame_width; col++) {
         *out_ptr = *(in_ptr + ((x_step * col) >> 16));
-        out_ptr++; // ???? sizeof(uint16_t)
+        out_ptr++;
       }
    }
 
-}
-
-static void sdl_rs90_blit_frame16_nearest_neighbor_keep(sdl_rs90_video_t *vid,
-      uint16_t* src, unsigned width, unsigned height,
-      unsigned src_pitch)
-{
-   uint16_t viewport_width;
-   uint16_t viewport_height;
-
-   // Move all this to set video mode
-   // (SDL_RS90_WIDTH / SDL_RS90_HEIGHT) > (width / height)
-   // is the same as
-   // height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT
-   // assuming all variables positive and nothing overflows
-   // avoids division and rounding
-   // We could avoid some multiplications if we used two temporary variables
-   // but probably fine
-   if (keep_aspect) {
-      if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
-         // Integer math fine
-         viewport_width = (width * SDL_RS90_HEIGHT) / height;
-         viewport_height = SDL_RS90_HEIGHT;
-      } else {
-         // Integer math fine
-         viewport_width = SDL_RS90_WIDTH;
-         viewport_height = (height * SDL_RS90_WIDTH) / width;
-      }
-   } else {
-      viewport_width = SDL_RS90_WIDTH;
-      viewport_height = SDL_RS90_HEIGHT;
-   }
-   uint16_t padding_left = (SDL_RS90_WIDTH - viewport_width) >> 1;
-   uint16_t padding_top = (SDL_RS90_HEIGHT - viewport_height) >> 1;
-
-
-   uint16_t *in_ptr;
-   uint16_t *out_ptr;
-
-   /* 16 bit - divide pitch by 2 */
-   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
-   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
-
-   float x_scale = (float)(width) / (float)(viewport_width);
-   float y_scale = (float)(height) / (float)(viewport_height);
-
-   uint16_t x;
-   uint16_t y;
-
-   uint16_t *x_locations;
-
-   x_locations = calloc(viewport_width, sizeof(uint16_t));
-
-   for (x = 0; x < viewport_width; x++) {
-      x_locations[x] = (uint16_t)(x * x_scale + 0.5);
-   }
-
-   for (y = 0; y < viewport_height; y++) {
-      out_ptr = (uint16_t*)(vid->screen->pixels) + padding_left + out_stride * (y + padding_top);
-      in_ptr = src + (uint16_t)(y * y_scale + 0.5) * in_stride;
-      for (x = 0; x < viewport_width; x++) {
-         // can just use array indexing instead of deref/offset
-        *out_ptr = in_ptr[x_locations[x]];
-        out_ptr++;
-     }
-  }
-
-  free(x_locations);
-}
-
-static void sdl_rs90_blit_frame16_nearest_neighbor_float(sdl_rs90_video_t *vid,
-      uint16_t* src, unsigned width, unsigned height,
-      unsigned src_pitch)
-{
-   uint16_t viewport_width;
-   uint16_t viewport_height;
-
-   // (SDL_RS90_WIDTH / SDL_RS90_HEIGHT) > (width / height)
-   // is the same as
-   // height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT
-   // assuming all variables positive and nothing overflows
-   // avoids division and rounding
-   // We could avoid some multiplications if we used two temporary variables
-   // but probably fine
-   if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
-      // Integer math fine
-      viewport_width = (width * SDL_RS90_HEIGHT) / height;
-      viewport_height = SDL_RS90_HEIGHT;
-   } else {
-      // Integer math fine
-      viewport_width = SDL_RS90_WIDTH;
-      viewport_height = (height * SDL_RS90_WIDTH) / width;
-   }
-
-
-   uint16_t *in_ptr;
-   uint16_t *out_ptr;
-   uint16_t padding_left = (SDL_RS90_WIDTH - viewport_width) >> 1;
-   uint16_t padding_top = (SDL_RS90_HEIGHT - viewport_height) >> 1;
-
-   /* 16 bit - divide pitch by 2 */
-   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
-   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
-
-   float x_scale = (float)(width) / (float)(viewport_width);
-   float y_scale = (float)(height) / (float)(viewport_height);
-
-   uint16_t x;
-   uint16_t y;
-
-   uint16_t *x_locations;
-
-   x_locations = calloc(viewport_width, sizeof(uint16_t));
-
-   for (x = 0; x < viewport_width; x++) {
-      x_locations[x] = (uint16_t)(x * x_scale + 0.5);
-   }
-
-   for (y = 0; y < viewport_height; y++) {
-      out_ptr = (uint16_t*)(vid->screen->pixels) + padding_left + out_stride * (y + padding_top);
-      in_ptr = src + (uint16_t)(y * y_scale + 0.5) * in_stride;
-      for (x = 0; x < viewport_width; x++) {
-         // can just use array indexing instead of deref/offset
-        *out_ptr = in_ptr[x_locations[x]];
-        out_ptr++;
-     }
-  }
-
-  free(x_locations);
 }
 
 static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
@@ -777,38 +654,6 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
       sdl_rs90_blit_frame16_nearest_neighbor(
          vid, src, width, height, src_pitch
       );
-
-      // /* Otherwise copy pixel data line-by-line */
-      //
-      // /* 16 bit - divide pitch by 2 */
-      // uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
-      // uint16_t out_stride = (uint16_t)(dst_pitch >> 1);
-      // size_t y;
-      //
-      //
-      // /* Might work, don't know. Need to test. */
-      // if (width >= SDL_RS90_WIDTH) {
-      //    // Crop left 1/2 excess width
-      //    in_ptr += (width - SDL_RS90_WIDTH) >> 1;
-      // } else {
-      //    // Pad left 1/2 remaining width
-      //    out_ptr += (SDL_RS90_WIDTH - width) >> 1;
-      // }
-      //
-      // if (height >= SDL_RS90_HEIGHT) {
-      //    // Crop top 1/2 excess height
-      //    in_ptr += in_stride * ((height - SDL_RS90_HEIGHT) >> 1);
-      // } else {
-      //    // Pad top 1/2 remaining height
-      //    out_ptr += out_stride * ((SDL_RS90_HEIGHT - height) >> 1);
-      // }
-      //
-      // for (y = 0; y < height_trunc; y++)
-      // {
-      //    memcpy(out_ptr, in_ptr, width_trunc * sizeof(uint16_t));
-      //    in_ptr  += in_stride;
-      //    out_ptr += out_stride;
-      // }
    }
 }
 
