@@ -638,6 +638,7 @@ static void sdl_rs90_blit_frame16_scale(sdl_rs90_video_t *vid,
    // Approximately width * 65536 / SDL_RS90_WIDTH
    uint32_t y_step = (uint32_t)((height << 16) / vid->frame_height); //  + 1;
 
+   // Unsigned?
    uint32_t row;
    uint32_t col;
 
@@ -668,8 +669,8 @@ static void sdl_rs90_blit_frame16_no_scale(sdl_rs90_video_t *vid,
 {
 
    /* 16 bit - divide pitch by 2 */
-   uint16_t in_stride  = (uint16_t)(src_pitch >> 1);
-   uint16_t out_stride = (uint16_t)(vid->screen->pitch >> 1);
+   size_t in_stride  = (size_t)(src_pitch >> 1);
+   size_t out_stride = (size_t)(vid->screen->pitch >> 1);
 
    // Manipulate offsets so that padding/crop are applied correctly
    uint16_t *in_ptr = src + vid->frame_crop_x + vid->frame_crop_y * in_stride;
@@ -708,14 +709,54 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
    }
 }
 
+
+// stretches
+// approximate nearest-neighbor scale using bitshift and integer math
+// (no floats)
+static void sdl_rs90_blit_frame32_scale(sdl_rs90_video_t *vid,
+      uint32_t* src, unsigned width, unsigned height,
+      unsigned src_pitch)
+{
+   // crop_x and crop_y should both be zero?
+   /* I'm not sure which of these need to be uin32_t and which can be 16
+   bit for performance */
+   /* approximate nearest neighbor scale with integer math */
+   uint32_t x_step = (uint32_t)((width << 16) / vid->frame_width); // + 1;
+   // Approximately width * 65536 / SDL_RS90_WIDTH
+   uint32_t y_step = (uint32_t)((height << 16) / vid->frame_height); //  + 1;
+
+   uint32_t row;
+   uint32_t col;
+
+   uint32_t *in_ptr;
+   uint32_t *out_ptr;
+   /* 32 bit - divide pitch by 4 */
+   size_t in_stride  = (size_t)(src_pitch >> 2);
+   size_t out_stride = (size_t)(vid->screen->pitch >> 2);
+
+   // Optimize these loops further
+   // Consider saving these computation in an array and indexing over them
+   // Would likely be slower due to cache (non-)locality, but it's worth a shot
+   // Tons of -> operations
+   for (row = 0; row < vid->frame_height; row++) {
+      out_ptr = (uint32_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * (row + vid->frame_padding_y);
+      in_ptr = src + (((row * y_step) >> 16)) * in_stride;
+      // width == content_width
+      for (col = 0; col < vid->frame_width; col++) {
+        *out_ptr = *(in_ptr + ((x_step * col) >> 16));
+        out_ptr++;
+      }
+   }
+}
+
 static void sdl_rs90_blit_frame32_no_scale(sdl_rs90_video_t *vid,
       uint32_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
 
-   /* 16 bit - divide pitch by 2 */
-   uint32_t in_stride  = (uint32_t)(src_pitch >> 2);
-   uint32_t out_stride = (uint32_t)(vid->screen->pitch >> 2);
+   /* 32 bit - divide pitch by 4 */
+   size_t in_stride  = (size_t)(src_pitch >> 2);
+   size_t out_stride = (size_t)(vid->screen->pitch >> 2);
 
    // Manipulate offsets so that padding/crop are applied correctly
    uint32_t *in_ptr = src + vid->frame_crop_x + vid->frame_crop_y * in_stride;
@@ -735,39 +776,21 @@ static void sdl_rs90_blit_frame32(sdl_rs90_video_t *vid,
       uint32_t* src, unsigned width, unsigned height,
       unsigned src_pitch)
 {
-   unsigned dst_pitch = vid->screen->pitch;
-   uint32_t *in_ptr   = src;
-   uint32_t *out_ptr  = (uint32_t*)(vid->screen->pixels +
-         (vid->frame_padding_y * dst_pitch));
-   /* Just copy the upper left hand rectangle for now if the
-   screen sizes don't match up */
-   /* Might be slightly nicer to do a center crop */
-   /* Scaling should be done in shaders, I guess */
-   unsigned width_trunc = width > SDL_RS90_WIDTH ? SDL_RS90_WIDTH : width;
-   unsigned height_trunc = height > SDL_RS90_HEIGHT ? SDL_RS90_HEIGHT : height;
-
    /* If source and destination buffers have the
     * same pitch, perform fast copy of raw pixel data */
-   if (src_pitch == dst_pitch && height == height_trunc)
-      memcpy(out_ptr, in_ptr, src_pitch * height);
+   // Make sure this code path is used for GBA
+   if (src_pitch == vid->screen->pitch && height == SDL_RS90_HEIGHT)
+      memcpy(vid->screen->pixels, src, src_pitch * SDL_RS90_HEIGHT);
    else
    {
-      /* Otherwise copy pixel data line-by-line */
-
-      /* 32 bit - divide pitch by 4 */
-      uint32_t in_stride  = (uint32_t)(src_pitch >> 2);
-      uint32_t out_stride = (uint32_t)(dst_pitch >> 2);
-      size_t y;
-
-      /* If SDL surface has horizontal padding,
-       * shift output image to the right */
-      out_ptr += vid->frame_padding_x;
-
-      for (y = 0; y < height_trunc; y++)
-      {
-         memcpy(out_ptr, in_ptr, width_trunc * sizeof(uint32_t));
-         in_ptr  += in_stride;
-         out_ptr += out_stride;
+      if (vid->scale_integer) {
+         sdl_rs90_blit_frame32_no_scale(
+            vid, src, width, height, src_pitch
+         );
+      } else {
+         sdl_rs90_blit_frame32_scale(
+            vid, src, width, height, src_pitch
+         );
       }
    }
 }
