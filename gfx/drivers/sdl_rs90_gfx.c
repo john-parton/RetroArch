@@ -536,6 +536,31 @@ static void sdl_rs90_set_output(
          (SDL_HWSURFACE | SDL_TRIPLEBUF | SDL_FULLSCREEN) :
          (SDL_HWSURFACE | SDL_FULLSCREEN);
 
+
+   // Detect display resolutions
+   SDL_Rect **modes = SDL_ListModes(NULL, surface_flags);
+
+   if (!modes[0]) {
+      RARCH_ERR("[SDL1]: No valid video modes detected.\n");
+      vid->mode_valid = false;
+      return;
+   } else {
+      // Just get first video mode... should consider getting "largest"
+      vid->screen = SDL_SetVideoMode(
+         modes[0]->w, modes[0]->h,
+         rgb32 ? 32 : 16,
+         surface_flags
+      );
+
+      /* Check whether selected display mode is valid */
+      if (unlikely(!vid->screen))
+      {
+         RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
+         vid->mode_valid = false;
+         return;
+      }
+   }
+
    vid->content_width = width;
    vid->content_height = height;
 
@@ -545,81 +570,64 @@ static void sdl_rs90_set_output(
    // If we want to support a core with an absolutely tiny screen,
    // we should do actual integer scaling
    if (vid->scale_integer) {
-      if (width > SDL_RS90_WIDTH) {
-         vid->frame_width = SDL_RS90_WIDTH;
-         vid->frame_crop_x = (width - SDL_RS90_WIDTH) >> 1;
+      if (width > vid->screen->w) {
+         vid->frame_width = vid->screen->w;
+         vid->frame_crop_x = (width - vid->screen->w) >> 1;
          vid->frame_padding_x = 0;
       } else {
          vid->frame_width = width;
          vid->frame_crop_x = 0;
-         vid->frame_padding_x = (SDL_RS90_WIDTH - width) >> 1;
+         vid->frame_padding_x = (vid->screen->w - width) >> 1;
       }
-      if (height > SDL_RS90_HEIGHT) {
-         vid->frame_height = SDL_RS90_HEIGHT;
-         vid->frame_crop_y = (height - SDL_RS90_HEIGHT) >> 1;
+      if (height > vid->screen->h) {
+         vid->frame_height = vid->screen->h;
+         vid->frame_crop_y = (height - vid->screen->h) >> 1;
          vid->frame_padding_y = 0;
       } else {
          vid->frame_height = height;
          vid->frame_crop_y = 0;
-         vid->frame_padding_y = (SDL_RS90_HEIGHT - height) >> 1;
+         vid->frame_padding_y = (vid->screen->h - height) >> 1;
       }
    } else {
       // Normal scaling
 
       if (vid->keep_aspect) {
-         if (height * SDL_RS90_WIDTH > width * SDL_RS90_HEIGHT) {
+         if (height * vid->screen->w > width * vid->screen->h) {
             // Integer math fine
-            vid->frame_width = (width * SDL_RS90_HEIGHT) / height;
-            vid->frame_height = SDL_RS90_HEIGHT;
+            vid->frame_width = (width * vid->screen->h) / height;
+            vid->frame_height = vid->screen->h;
          } else {
             // Integer math fine
-            vid->frame_width = SDL_RS90_WIDTH;
-            vid->frame_height = (height * SDL_RS90_WIDTH) / width;
+            vid->frame_width = vid->screen->w;
+            vid->frame_height = (height * vid->screen->w) / width;
          }
       } else {
-         vid->frame_width = SDL_RS90_WIDTH;
-         vid->frame_height = SDL_RS90_HEIGHT;
+         vid->frame_width = vid->screen->w;
+         vid->frame_height = vid->screen->h;
       }
 
       vid->frame_crop_x = 0;
-      vid->frame_padding_x = (SDL_RS90_WIDTH - vid->frame_width) >> 1;
+      vid->frame_padding_x = (vid->screen->w - vid->frame_width) >> 1;
       vid->frame_crop_y = 0;
-      vid->frame_padding_y = (SDL_RS90_HEIGHT - vid->frame_height) >> 1;
+      vid->frame_padding_y = (vid->screen->h - vid->frame_height) >> 1;
    }
 
-
-   /* Attempt to change video mode */
-   vid->screen = SDL_SetVideoMode(
-      SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
-      rgb32 ? 32 : 16,
-      surface_flags
-   );
-
-   /* Check whether selected display mode is valid */
-   if (unlikely(!vid->screen))
+   /* Determine whether frame padding is required */
+   if (vid->frame_padding_x > 0 || vid->frame_padding_y > 0)
    {
-      RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
-      vid->mode_valid = false;
+      /* To prevent garbage pixels in the padding
+       * region, must zero out pixel buffer */
+      if (SDL_MUSTLOCK(vid->screen))
+         SDL_LockSurface(vid->screen);
+
+      memset(vid->screen->pixels, 0,
+            vid->screen->pitch * vid->screen->h);
+
+      if (SDL_MUSTLOCK(vid->screen))
+         SDL_UnlockSurface(vid->screen);
    }
-   else
-   {
-      /* Determine whether frame padding is required */
-      if (vid->frame_padding_x > 0 || vid->frame_padding_y > 0)
-      {
-         /* To prevent garbage pixels in the padding
-          * region, must zero out pixel buffer */
-         if (SDL_MUSTLOCK(vid->screen))
-            SDL_LockSurface(vid->screen);
 
-         memset(vid->screen->pixels, 0,
-               vid->screen->pitch * vid->screen->h);
-
-         if (SDL_MUSTLOCK(vid->screen))
-            SDL_UnlockSurface(vid->screen);
-      }
-
-      vid->mode_valid = true;
-   }
+   vid->mode_valid = true;
 }
 
 // approximate nearest-neighbor scale using bitshift and integer math
