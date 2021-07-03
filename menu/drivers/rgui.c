@@ -76,8 +76,13 @@
 #define RGUI_ROUND_FB_WIDTH(width) ((unsigned)(width) & ~1)
 #endif
 
-#define RGUI_MIN_FB_HEIGHT 192
-#define RGUI_MIN_FB_WIDTH 256
+#if defined(RS90)
+   #define RGUI_MIN_FB_HEIGHT 160
+   #define RGUI_MIN_FB_WIDTH 240
+#else
+   #define RGUI_MIN_FB_HEIGHT 192
+   #define RGUI_MIN_FB_WIDTH 256
+#endif
 #define RGUI_MAX_FB_WIDTH 426
 
 /* Maximum entry value length in characters
@@ -5436,12 +5441,7 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
     * the usual 426, since the last two bits of the
     * width value must be zero... */
    unsigned max_frame_buf_width = 424;
-#elif defined(RS90)
-   /* The RS-90 use a fixed framebuffer size
-    * of 240x160 */
-   unsigned max_frame_buf_width = 240;
-
-#elif defined(DINGUX)
+#elif defined(DINGUX) && !defined(RS90)
    /* Dingux devices other than the RS-90 use a fixed framebuffer size
     * of 320x240 */
    unsigned max_frame_buf_width = 320;
@@ -5478,11 +5478,7 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
     * dimensions at will, have to read currently set
     * values */
    rgui->frame_buf.height = p_disp->framebuf_height;
-#elif defined(RS90)
-   /* RS-90 use a fixed framebuffer size
-    * of 240x160 */
-   rgui->frame_buf.height = 160;
-#elif defined(DINGUX)
+#elif defined(DINGUX) && !defined(RS90)
    /* Dingux devices other than the RS-90 use a fixed framebuffer size
     * of 320x240 */
    rgui->frame_buf.height = 240;
@@ -6601,7 +6597,7 @@ static void rgui_frame(void *data, video_frame_info_t *video_info)
    bool bg_filler_thickness_enable     = settings->bools.menu_rgui_background_filler_thickness_enable;
    bool border_filler_thickness_enable = settings->bools.menu_rgui_border_filler_thickness_enable;
 #if defined(RS90)
-   unsigned aspect_ratio               = RGUI_ASPECT_RATIO_3_2;
+   unsigned aspect_ratio               = 2 * video_info->width == 3 * video_info->height ? RGUI_ASPECT_RATIO_3_2 : RGUI_ASPECT_RATIO_4_3;
    unsigned aspect_ratio_lock          = RGUI_ASPECT_RATIO_LOCK_NONE;
 #elif defined(DINGUX)
    unsigned aspect_ratio               = RGUI_ASPECT_RATIO_4_3;

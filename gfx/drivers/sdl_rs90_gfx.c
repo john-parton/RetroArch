@@ -49,11 +49,6 @@
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define SDL_RS90_WIDTH 240
-#define SDL_RS90_HEIGHT 160
-// pitch = SDL_RS90_WIDTH * sizeof(uint16_t)
-// define SDL_RS90_PITCH SDL_RS90_WIDTH * 2
-
 #define SDL_DINGUX_NUM_FONT_GLYPHS 256
 
 typedef struct sdl_rs90_video
@@ -76,7 +71,7 @@ typedef struct sdl_rs90_video
 #endif
    uint32_t font_colour32;
    uint16_t font_colour16;
-   uint16_t menu_texture[SDL_RS90_WIDTH * SDL_RS90_HEIGHT];
+   uint16_t* menu_texture;
    bool rgb32;
    bool vsync;
    bool keep_aspect;
@@ -327,6 +322,8 @@ static void sdl_rs90_gfx_free(void *data)
    if (vid->osd_font)
       bitmapfont_free_lut(vid->osd_font);
 
+   free(vid->menu_texture);
+
    free(vid);
 }
 
@@ -478,7 +475,7 @@ static void *sdl_rs90_gfx_init(const video_info_t *video,
 #endif
 
    vid->screen = SDL_SetVideoMode(
-      SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
+      0, 0,
       video->rgb32 ? 32 : 16,
       surface_flags
    );
@@ -489,10 +486,10 @@ static void *sdl_rs90_gfx_init(const video_info_t *video,
       goto error;
    }
 
-   vid->content_width   = SDL_RS90_WIDTH;
-   vid->content_height  = SDL_RS90_HEIGHT;
-   vid->frame_width     = SDL_RS90_WIDTH;
-   vid->frame_height    = SDL_RS90_HEIGHT;
+   vid->content_width   = vid->screen->w;
+   vid->content_height  = vid->screen->h;
+   vid->frame_width     = vid->screen->w;
+   vid->frame_height    = vid->screen->h;
    vid->rgb32           = video->rgb32;
    vid->vsync           = video->vsync;
    vid->keep_aspect     = settings->bools.video_dingux_ipu_keep_aspect;
@@ -502,6 +499,9 @@ static void *sdl_rs90_gfx_init(const video_info_t *video,
    vid->quitting        = false;
    vid->mode_valid      = true;
    vid->last_frame_time = 0;
+
+   // Is this necessary here?
+   vid->menu_texture = (uint16_t*)calloc(vid->screen->w * vid->screen->h, sizeof(uint16_t));
 
    SDL_ShowCursor(SDL_DISABLE);
 
@@ -536,6 +536,9 @@ static void sdl_rs90_set_output(
          (SDL_HWSURFACE | SDL_TRIPLEBUF | SDL_FULLSCREEN) :
          (SDL_HWSURFACE | SDL_FULLSCREEN);
 
+   // zero width & height is
+   // "auto" mode or "menu" mode
+   bool display_auto = width == 0 && height == 0;
 
    // Detect display resolutions
    SDL_Rect **modes = SDL_ListModes(NULL, surface_flags);
@@ -545,7 +548,13 @@ static void sdl_rs90_set_output(
       vid->mode_valid = false;
       return;
    } else {
-      // Just get first video mode... should consider getting "largest"
+      // Consider removing
+      for (int i; modes[i]; ++i) {
+         RARCH_LOG("[SDL1]: Valid video mode: %d x %d\n", modes[i]->w, modes[i]->h);
+      }
+
+      // Just get first video mode... should consider getting "largest" or some other
+      // criteria
       vid->screen = SDL_SetVideoMode(
          modes[0]->w, modes[0]->h,
          rgb32 ? 32 : 16,
@@ -557,12 +566,19 @@ static void sdl_rs90_set_output(
       {
          RARCH_ERR("[SDL1]: Failed to init SDL surface: %s\n", SDL_GetError());
          vid->mode_valid = false;
+         // Do we need to destroy the screen here?
          return;
       }
    }
 
-   vid->content_width = width;
-   vid->content_height = height;
+   if (display_auto) {
+      // Free texture if it hasn't been free yet
+      free(vid->menu_texture);
+      vid->menu_texture = (uint16_t*)calloc(vid->screen->h * vid->screen->w, sizeof(uint16_t));
+   }
+
+   vid->content_width = display_auto ? vid->screen->w : width;
+   vid->content_height = display_auto ? vid->screen->h : height;
 
    // Technically, "scale_integer" here just means "do not scale"
    // If the content is larger, we crop, otherwise we just center it in the
@@ -706,8 +722,8 @@ static void sdl_rs90_blit_frame16(sdl_rs90_video_t *vid,
    /* If source and destination buffers have the
     * same pitch, perform fast copy of raw pixel data */
    // Make sure this code path is used for GBA
-   if (src_pitch == vid->screen->pitch && height == SDL_RS90_HEIGHT)
-      memcpy(vid->screen->pixels, src, src_pitch * SDL_RS90_HEIGHT);
+   if (src_pitch == vid->screen->pitch && height == vid->screen->h)
+      memcpy(vid->screen->pixels, src, src_pitch * vid->screen->h);
    else
    {
       if (vid->scale_integer) {
@@ -798,8 +814,8 @@ static void sdl_rs90_blit_frame32(sdl_rs90_video_t *vid,
    /* If source and destination buffers have the
     * same pitch, perform fast copy of raw pixel data */
    // Make sure this code path is used for GBA
-   if (src_pitch == vid->screen->pitch && height == SDL_RS90_HEIGHT)
-      memcpy(vid->screen->pixels, src, src_pitch * SDL_RS90_HEIGHT);
+   if (src_pitch == vid->screen->pitch && height == vid->screen->h)
+      memcpy(vid->screen->pixels, src, src_pitch * vid->screen->h);
    else
    {
       if (vid->scale_integer) {
@@ -888,8 +904,7 @@ static bool sdl_rs90_gfx_frame(void *data, const void *frame,
        * is active, update video mode */
       if (!vid->was_in_menu)
       {
-         sdl_rs90_set_output(vid,
-               SDL_RS90_WIDTH, SDL_RS90_HEIGHT, false);
+         sdl_rs90_set_output(vid, 0, 0, false);
 
          vid->was_in_menu = true;
       }
@@ -899,8 +914,8 @@ static bool sdl_rs90_gfx_frame(void *data, const void *frame,
 
       /* Blit menu texture to SDL surface */
       sdl_rs90_blit_frame16(vid, vid->menu_texture,
-            SDL_RS90_WIDTH, SDL_RS90_HEIGHT,
-            SDL_RS90_WIDTH * sizeof(uint16_t));
+            vid->screen->w, vid->screen->h,
+            vid->screen->w * sizeof(uint16_t));
    }
 
    /* Print OSD text, if required */
@@ -944,11 +959,11 @@ static void sdl_rs90_set_texture_frame(void *data, const void *frame, bool rgb32
    if (unlikely(
          !vid ||
          rgb32 ||
-         (width > SDL_RS90_WIDTH) ||
-         (height > SDL_RS90_HEIGHT)))
+         (width > vid->screen->w) ||
+         (height > vid->screen->h)))
       return;
 
-   memcpy(vid->menu_texture, frame, width * height * sizeof(uint16_t));
+   memcpy(vid->menu_texture, frame, vid->screen->w * vid->screen->h * sizeof(uint16_t));
 }
 
 static void sdl_rs90_gfx_set_nonblock_state(void *data, bool toggle,
@@ -1048,8 +1063,8 @@ static void sdl_rs90_gfx_viewport_info(void *data, struct video_viewport *vp)
 
    vp->x      = 0;
    vp->y      = 0;
-   vp->width  = vp->full_width  = vid->frame_width;
-   vp->height = vp->full_height = vid->frame_height;
+   vp->width  = vp->full_width  = vid->screen->w;
+   vp->height = vp->full_height = vid->screen->h;
 }
 
 static float sdl_rs90_get_refresh_rate(void *data)
@@ -1071,6 +1086,7 @@ static float sdl_rs90_get_refresh_rate(void *data)
 
    return 60.0f;
 }
+
 
 static void sdl_rs90_apply_state_changes(void *data)
 {
