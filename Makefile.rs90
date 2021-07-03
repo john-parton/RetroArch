@@ -3,7 +3,7 @@
 #########################
 
 # Alpha toolchain
-TOOLCHAIN_DIR=/opt/rs90-toolchain.2021-06-28
+TOOLCHAIN_DIR=/opt/rs90-toolchain
 
 # All toolchain-related variables may be
 # overridden via the command line
