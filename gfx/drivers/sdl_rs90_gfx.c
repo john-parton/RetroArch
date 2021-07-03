@@ -49,10 +49,13 @@
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define SDL_RS90_WIDTH 240
-#define SDL_RS90_HEIGHT 160
-// pitch = SDL_RS90_WIDTH * sizeof(uint16_t)
-// define SDL_RS90_PITCH SDL_RS90_WIDTH * 2
+#if defined(RG99)
+   #define SDL_RS90_WIDTH 320
+   #define SDL_RS90_HEIGHT 240
+#else
+   #define SDL_RS90_WIDTH 240
+   #define SDL_RS90_HEIGHT 160
+#endif
 
 #define SDL_DINGUX_NUM_FONT_GLYPHS 256
 

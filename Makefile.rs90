@@ -110,7 +110,9 @@ HAVE_CONFIGFILE = 1
 HAVE_PATCH = 1
 HAVE_CHEATS = 1
 HAVE_CHEEVOS = 0
-HAVE_LIBSHAKE = 0
+# The RS90 doesn't need libshake
+# But there's unofficial support for the RG-99 which as a motor
+HAVE_LIBSHAKE = 1
 HAVE_TINYALSA = 1
 HAVE_NEAREST_RESAMPLER = 1
 
@@ -139,6 +141,7 @@ DEFINES += -DHAVE_FILTERS_BUILTIN
 DEFINES += -DHAVE_UDEV=1
 DEFINES += -DHAVE_ALSA
 DEFINES += -DCC_RESAMPLER_PRECISION=0
+DEFINES += -DRG99
 
 SDL_DINGUX_CFLAGS := $(shell $(GCW0_SDL_CONFIG) --cflags)
 SDL_DINGUX_LIBS := $(shell $(GCW0_SDL_CONFIG) --libs)
@@ -221,14 +224,14 @@ clean:
 	rm -rf $(OPK_NAME)
 
 opk: $(TARGET)
-	echo "$$DESKTOP_ENTRY" > default.rs90.desktop
+	echo "$$DESKTOP_ENTRY" > default.rg99.desktop
 	rm -f $(OPK_NAME)
 	cp media/ico_src/icon32.png retroarch.png
 ifeq ($STRIP_BIN, 1)
 	$(STRIP) --strip-unneeded retroarch
 endif
-	$(GCW0_MK_SQUASH_FS) retroarch default.rs90.desktop retroarch.png $(OPK_NAME) -all-root -no-xattrs -noappend -no-exports
-	rm -f default.rs90.desktop retroarch.png
+	$(GCW0_MK_SQUASH_FS) retroarch default.rg99.desktop retroarch.png $(OPK_NAME) -all-root -no-xattrs -noappend -no-exports
+	rm -f default.rg99.desktop retroarch.png
 
 .PHONY: all clean opk
 
