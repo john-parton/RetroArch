@@ -577,15 +577,25 @@ static void sdl_rs90_set_output(
       vid->menu_texture = (uint16_t*)calloc(vid->screen->h * vid->screen->w, sizeof(uint16_t));
    }
 
-   vid->content_width = display_auto ? vid->screen->w : width;
-   vid->content_height = display_auto ? vid->screen->h : height;
-
    // Technically, "scale_integer" here just means "do not scale"
    // If the content is larger, we crop, otherwise we just center it in the
    // frame.
    // If we want to support a core with an absolutely tiny screen,
    // we should do actual integer scaling
-   if (vid->scale_integer) {
+   if (display_auto) {
+      vid->content_width = vid->screen->w;
+      vid->content_height = vid->screen->h;
+      vid->frame_crop_x = 0;
+      vid->frame_padding_x = 0;
+      vid->frame_crop_y = 0;
+      vid->frame_padding_y = 0;
+      vid->frame_width = vid->screen->w;
+      vid->frame_height = vid->screen->h;
+
+   } else if (vid->scale_integer) {
+      vid->content_width = width;
+      vid->content_height = height;
+
       if (width > vid->screen->w) {
          vid->frame_width = vid->screen->w;
          vid->frame_crop_x = (width - vid->screen->w) >> 1;
@@ -606,6 +616,8 @@ static void sdl_rs90_set_output(
       }
    } else {
       // Normal scaling
+      vid->content_width = width;
+      vid->content_height = height;
 
       if (vid->keep_aspect) {
          if (height * vid->screen->w > width * vid->screen->h) {
@@ -661,11 +673,13 @@ static void sdl_rs90_blit_frame16_scale(sdl_rs90_video_t *vid,
    uint32_t x;
    uint32_t y;
 
-   size_t row;
+   size_t row = vid->frame_height;
    size_t col;
+   size_t num_cols = vid->frame_width;
    /* 16 bit - divide pitch by 2 */
    size_t in_stride  = (size_t)(src_pitch >> 1);
    size_t out_stride = (size_t)(vid->screen->pitch >> 1);
+   size_t out_row_offset = 0;
 
    // Apply x/y padding offset
    uint16_t *top_corner = (uint16_t*)(vid->screen->pixels) + vid->frame_padding_x + out_stride * vid->frame_padding_y;
@@ -678,18 +692,18 @@ static void sdl_rs90_blit_frame16_scale(sdl_rs90_video_t *vid,
    // Would likely be slower due to cache (non-)locality, but it's worth a shot
    // Tons of -> operations
    y = 0;
-   for (row = 0; row < vid->frame_height; row++) {
-      out_ptr = top_corner + out_stride * row;
+   do {
+      out_ptr = top_corner + out_row_offset;
       in_ptr = src + (y >> 16) * in_stride;
       x = 0;
-      col = vid->frame_width;
+      col = num_cols;
       do {
-        *out_ptr = in_ptr[x >> 16];
-        out_ptr++;
+        *out_ptr++ = in_ptr[x >> 16]
         x += x_step;
       } while (--col);
       y += y_step;
-   }
+      out_row_offset += out_stride;
+   } while(--row);
 }
 
 static void sdl_rs90_blit_frame16_no_scale(sdl_rs90_video_t *vid,
